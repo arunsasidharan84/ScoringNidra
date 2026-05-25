@@ -16,11 +16,29 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust_backend
+
+      - name: Build Rust backend (macOS dylib)
+        run: cargo build --release
+        working-directory: rust_backend
+
+      - name: Copy dylib into macOS runner bundle
+        run: |
+          mkdir -p macos/Runner
+          cp rust_backend/target/release/librust_sleep_eeg.dylib macos/Runner/
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+          cache-key: flutter-${{ runner.os }}-${{ hashFiles('pubspec.yaml') }}
 
       - name: Install dependencies
         run: flutter pub get
@@ -50,6 +68,7 @@ jobs:
           name: sleep_eeg_desktop-macos
           path: dist/sleep_eeg_desktop-macos.zip
           if-no-files-found: error
+          retention-days: 7
 
   build-windows:
     name: Windows
@@ -58,11 +77,30 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust_backend
+
+      - name: Build Rust backend (Windows DLL)
+        run: cargo build --release
+        working-directory: rust_backend
+
+      - name: Copy DLL into Windows runner
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path windows\runner
+          Copy-Item rust_backend\target\release\rust_sleep_eeg.dll windows\runner\
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+          cache-key: flutter-${{ runner.os }}-${{ hashFiles('pubspec.yaml') }}
 
       - name: Install dependencies
         run: flutter pub get
@@ -91,3 +129,4 @@ jobs:
           name: sleep_eeg_desktop-windows
           path: dist/sleep_eeg_desktop-windows.zip
           if-no-files-found: error
+          retention-days: 7

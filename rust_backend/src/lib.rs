@@ -4,6 +4,8 @@ use std::os::raw::c_char;
 use std::path::Path;
 use std::ptr;
 
+mod morlet;
+
 #[repr(C)]
 pub struct SleepEegPoint {
     pub x: f32,
@@ -106,6 +108,60 @@ fn demo_viewport() -> SleepEegViewport {
         channel_count: channel_count as i32,
         point_count,
         points,
+    }
+}
+
+#[repr(C)]
+pub struct SleepEegMorletResult {
+    pub power: *mut f32,
+    pub power_len: i32,
+    pub n_freqs: i32,
+    pub n_samples: i32,
+}
+
+#[no_mangle]
+pub extern "C" fn sleep_eeg_compute_morlet_tf(
+    signal: *const f32,
+    n_samples: i32,
+    srate: f32,
+    freqs: *const f32,
+    n_freqs: i32,
+    l2_normalize: bool,
+) -> *mut SleepEegMorletResult {
+    if signal.is_null() || freqs.is_null() || n_samples <= 0 || n_freqs <= 0 {
+        return ptr::null_mut();
+    }
+
+    let signal_slice = unsafe { std::slice::from_raw_parts(signal, n_samples as usize) };
+    let freqs_slice = unsafe { std::slice::from_raw_parts(freqs, n_freqs as usize) };
+
+    let mut power_vec = morlet::compute_morlet_tf(signal_slice, srate, freqs_slice, l2_normalize);
+
+    let result = Box::new(SleepEegMorletResult {
+        power_len: power_vec.len() as i32,
+        n_freqs,
+        n_samples,
+        power: power_vec.leak().as_mut_ptr(),
+    });
+
+    Box::into_raw(result)
+}
+
+#[no_mangle]
+pub extern "C" fn sleep_eeg_free_morlet_tf(result: *mut SleepEegMorletResult) {
+    if result.is_null() {
+        return;
+    }
+
+    unsafe {
+        let result_box = Box::from_raw(result);
+        if !result_box.power.is_null() && result_box.power_len > 0 {
+            let _ = Vec::from_raw_parts(
+                result_box.power,
+                result_box.power_len as usize,
+                result_box.power_len as usize,
+            );
+        }
     }
 }
 

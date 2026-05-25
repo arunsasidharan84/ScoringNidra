@@ -5,8 +5,7 @@ void main() {
   testWidgets('renders the sleep EEG viewer shell', (tester) async {
     await tester.pumpWidget(const SleepEegApp());
 
-    expect(find.text('Sleep EEG Scorer'), findsOneWidget);
-    expect(find.text('Demo recording'), findsOneWidget);
-    expect(find.text('N2'), findsOneWidget);
+    expect(find.text('Epoch:'), findsOneWidget);
+    expect(find.textContaining('Ready'), findsOneWidget);
   });
 }

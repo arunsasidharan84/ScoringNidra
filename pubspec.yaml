@@ -36,6 +36,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   file_picker: ^11.0.2
   ffi: ^2.2.0
+  path_provider: ^2.1.0
 
 dev_dependencies:
   flutter_test:
@@ -60,9 +61,8 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  assets:
+    - assets/spectral.txt
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
