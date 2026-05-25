@@ -1,0 +1,16 @@
+.DS_Store
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+dist/
+
+# Native build output
+rust_backend/target/
+
+# IDE state
+.idea/
+*.iml

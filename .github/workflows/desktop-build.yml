@@ -1,0 +1,93 @@
+name: Build desktop apps
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    name: macOS
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build macOS app
+        run: flutter build macos --release
+
+      - name: Ad-hoc sign macOS app
+        run: codesign --force --deep --sign - build/macos/Build/Products/Release/sleep_eeg_desktop.app
+
+      - name: Package macOS app
+        run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/macos/Build/Products/Release/sleep_eeg_desktop.app \
+            dist/sleep_eeg_desktop-macos.zip
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sleep_eeg_desktop-macos
+          path: dist/sleep_eeg_desktop-macos.zip
+          if-no-files-found: error
+
+  build-windows:
+    name: Windows
+    runs-on: windows-2022
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build Windows app
+        run: flutter build windows --release
+
+      - name: Package Windows app
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Compress-Archive `
+            -Path build\windows\x64\runner\Release\* `
+            -DestinationPath dist\sleep_eeg_desktop-windows.zip `
+            -Force
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sleep_eeg_desktop-windows
+          path: dist/sleep_eeg_desktop-windows.zip
+          if-no-files-found: error
