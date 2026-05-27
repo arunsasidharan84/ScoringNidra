@@ -229,10 +229,29 @@ class AppConfig {
   }
 
   factory AppConfig.fromJson(Map<String, dynamic> json) {
+    int safeInt(dynamic v, int def) {
+      if (v == null) return def;
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      if (v is String) return int.tryParse(v) ?? def;
+      return def;
+    }
+
+    bool safeBool(dynamic v, bool def) {
+      if (v == null) return def;
+      if (v is bool) return v;
+      if (v is num) return v != 0;
+      if (v is String) {
+        final l = v.toLowerCase();
+        return l == 'true' || l == '1' || l == 'yes';
+      }
+      return def;
+    }
+
     return AppConfig(
-      spectrogramChannelIndex: json['spectrogramChannelIndex'] as int? ?? 0,
-      periodogramChannelIndex: json['periodogramChannelIndex'] as int? ?? 0,
-      tfChannelIndex: json['tfChannelIndex'] as int? ?? 0,
+      spectrogramChannelIndex: safeInt(json['spectrogramChannelIndex'], 0),
+      periodogramChannelIndex: safeInt(json['periodogramChannelIndex'], 0),
+      tfChannelIndex: safeInt(json['tfChannelIndex'], 0),
       amplitudeRangeUv: (json['amplitudeRangeUv'] as num?)?.toDouble() ?? 75.0,
       tfFreqMin: (json['tfFreqMin'] as num?)?.toDouble() ?? 0.25,
       tfFreqMax: (json['tfFreqMax'] as num?)?.toDouble() ?? 45.0,
@@ -248,14 +267,14 @@ class AppConfig {
           (json['spectrogramPowerMin'] as num?)?.toDouble() ?? -1.0,
       spectrogramPowerMax:
           (json['spectrogramPowerMax'] as num?)?.toDouble() ?? 3.0,
-      tfEnabled: json['tfEnabled'] as bool? ?? true,
+      tfEnabled: safeBool(json['tfEnabled'], true),
       tfDisplayMode: json['tfDisplayMode'] as String? ?? 'dB (median baseline)',
       tfFrequencyScale: json['tfFrequencyScale'] as String? ?? 'Linear',
-      tfShowRidge: json['tfShowRidge'] as bool? ?? false,
+      tfShowRidge: safeBool(json['tfShowRidge'], false),
       tfPowerMin: (json['tfPowerMin'] as num?)?.toDouble() ?? 0.0,
       tfPowerMax: (json['tfPowerMax'] as num?)?.toDouble() ?? 20.0,
-      stackChannels: json['stackChannels'] as bool? ?? false,
-      robustZStandardize: json['robustZStandardize'] as bool? ?? false,
+      stackChannels: safeBool(json['stackChannels'], false),
+      robustZStandardize: safeBool(json['robustZStandardize'], false),
       periodogramDisplayMode:
           json['periodogramDisplayMode'] as String? ?? '1/f Removed',
       eegPanelTimeUnit: json['eegPanelTimeUnit'] as String? ?? 'Seconds',
@@ -263,9 +282,8 @@ class AppConfig {
           (json['distanceBetweenChannelsUv'] as num?)?.toDouble() ?? 25.0,
       referenceAmplitudeLineUv:
           (json['referenceAmplitudeLineUv'] as num?)?.toDouble() ?? 37.5,
-      channels:
-          (json['channels'] as List<dynamic>?)
-              ?.map((c) => ChannelConfig.fromJson(c as Map<String, dynamic>))
+      channels: (json['channels'] as List<dynamic>?)
+              ?.map((c) => ChannelConfig.fromJson(Map<String, dynamic>.from(c as Map)))
               .toList() ??
           const [],
     );
@@ -285,6 +303,7 @@ class AppConfig {
           ? channels[tfChannelIndex].name
           : '',
       'Reference_amplitude_line_muV': referenceAmplitudeLineUv,
+      'Amplitude_range_muV': amplitudeRangeUv,
       'Wavelet_frequency_limits_hz': [tfFreqMin, tfFreqMax],
       'Wavelet_frequency_scale': tfFrequencyScale,
       'Spectrogram_power_limits': [spectrogramPowerMin, spectrogramPowerMax],
@@ -315,7 +334,7 @@ class AppConfig {
       final channelsList = json[1] as List<dynamic>;
 
       final channels = channelsList
-          .map((c) => ChannelConfig.fromJson(c as Map<String, dynamic>))
+          .map((c) => ChannelConfig.fromJson(Map<String, dynamic>.from(c as Map)))
           .toList();
       final channelNames = channels.map((c) => c.name).toList();
 
@@ -372,7 +391,7 @@ class AppConfig {
         spectrogramChannelIndex: indexOfChannel(specCh),
         periodogramChannelIndex: indexOfChannel(periodCh),
         tfChannelIndex: indexOfChannel(tfCh),
-        amplitudeRangeUv: 75.0,
+        amplitudeRangeUv: (global['Amplitude_range_muV'] as num?)?.toDouble() ?? 75.0,
         referenceAmplitudeLineUv: amp?.toDouble() ?? 37.5,
         tfEnabled: tfVis,
         tfDisplayMode: tfDisplay,
@@ -526,10 +545,38 @@ class AppConfig {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+DynamicLibrary _openDynamicLibrary() {
+  String name;
+  if (Platform.isMacOS) {
+    name = 'librust_sleep_eeg.dylib';
+  } else if (Platform.isWindows) {
+    name = 'rust_sleep_eeg.dll';
+  } else {
+    name = 'librust_sleep_eeg.so';
+  }
+
+  final paths = [
+    name,
+    '${Directory.current.path}/rust_backend/target/release/$name',
+    '${Directory.current.path}/rust_backend/target/debug/$name',
+    '${File(Platform.resolvedExecutable).parent.path}/$name',
+    '${File(Platform.resolvedExecutable).parent.path}/../Frameworks/$name',
+  ];
+
+  for (final path in paths) {
+    try {
+      return DynamicLibrary.open(path);
+    } catch (_) {}
+  }
+  throw OSError('Could not open library: $name');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 class EegBackend {
   EegBackend() {
     try {
-      final library = DynamicLibrary.open(_libraryName);
+      final library = _openDynamicLibrary();
       _loadViewport = library
           .lookupFunction<_LoadViewportNative, _LoadViewportDart>(
             'sleep_eeg_load_viewport',
@@ -585,6 +632,14 @@ class EegBackend {
   final _tfCacheOrder = <String>[];
   final _tfImageCache = <String, ui.Image>{};
   final _tfImageCacheOrder = <String>[];
+
+  /// Clears the waveform display point cache. Call this when filter or
+  /// channel display settings change to ensure stale cached waveforms
+  /// are not shown.
+  void clearDisplayCache() {
+    _displayPointCache.clear();
+    _displayPointCacheOrder.clear();
+  }
 
   String get _libraryName {
     if (Platform.isMacOS) return 'librust_sleep_eeg.dylib';
@@ -845,14 +900,16 @@ class EegBackend {
       tfFreqs: eeg.tfFreqs,
       tfNormMedian: eeg.tfNormMedian,
       tfNormIqr: eeg.tfNormIqr,
-      spectrogramChannelIndex: eeg.spectrogramChannelIndex,
+      spectrogramChannelIndex: cfg.spectrogramChannelIndex,
       spectrogramImage: eeg.spectrogramImage,
       currentEpochPeriodogram: periodogram,
       periodogramFreqs: periodogramFreqs,
       tfPower: tfPower,
       tfImage: tfImage,
-      tfChannelIndex: tfCh,
+      tfChannelIndex: cfg.tfChannelIndex,
+      periodogramChannelIndex: cfg.periodogramChannelIndex,
       amplitudeRangeUv: cfg.amplitudeRangeUv,
+      referenceAmplitudeLineUv: cfg.referenceAmplitudeLineUv,
       visibleChannelLabels: visibleChannels.labels,
       visibleChannelSourceIndices: visibleChannels.indices,
       visibleChannelColors: visibleChannels.colors,
@@ -1432,7 +1489,6 @@ class EegBackend {
     final waves = <Float32List>[];
     if (channels.isEmpty || sampleRate <= 0) return waves;
 
-    const maxPointsPerChannel = 1000;
     final rawStart = (startSeconds * sampleRate).floor();
     final start = math.max(0, rawStart);
     final end = math.min(
@@ -1442,8 +1498,6 @@ class EegBackend {
     final count = math.max(0, end - start);
     if (count == 0) return waves;
 
-    final stride = math.max(1, (count / maxPointsPerChannel).ceil());
-    final pointsCount = (count / stride).ceil();
     final displayIndices = visibleIndices.isEmpty
         ? [for (var i = 0; i < channels.length; i++) i]
         : visibleIndices.where((i) => i >= 0 && i < channels.length).toList();
@@ -1471,14 +1525,20 @@ class EegBackend {
         applyFilters: true,
       );
       if (segment.isEmpty) {
-        waves.add(Float32List(pointsCount));
+        waves.add(Float32List(0));
         continue;
+      }
+
+      var displayData = segment;
+      const targetPoints = 3000;
+      if (segment.length > targetPoints) {
+        displayData = _minMaxDownsample(segment, targetPoints);
       }
 
       double sum = 0.0;
       var meanCount = 0;
-      for (var i = 0; i < segment.length; i += 32) {
-        sum += segment[i];
+      for (var i = 0; i < displayData.length; i += 32) {
+        sum += displayData[i];
         meanCount++;
       }
       final mean = meanCount > 0 ? sum / meanCount : 0.0;
@@ -1490,20 +1550,18 @@ class EegBackend {
       final scale = channelCfg.scalingFactor / 100.0;
       final shift = channelCfg.verticalShift;
       final robustStats = cfg.robustZStandardize
-          ? _robustStats(segment, 0, segment.length)
+          ? _robustStats(displayData, 0, displayData.length)
           : null;
 
-      final yValues = Float32List(pointsCount);
-      var idx = 0;
-      for (var sample = 0; sample < segment.length; sample += stride) {
-        if (idx >= pointsCount) break;
+      final yValues = Float32List(displayData.length);
+      for (var sample = 0; sample < displayData.length; sample++) {
         final rawValue = robustStats == null
-            ? segment[sample] - mean
-            : ((segment[sample] - robustStats.median) / robustStats.iqr) *
+            ? displayData[sample] - mean
+            : ((displayData[sample] - robustStats.median) / robustStats.iqr) *
                   cfg.referenceAmplitudeLineUv;
         final sampleUv = (rawValue * scale) + shift;
         final normalized = sampleUv / maxAbs;
-        yValues[idx++] = baseline - normalized * channelHeight * 0.42;
+        yValues[sample] = baseline - normalized * channelHeight * 0.42;
       }
       waves.add(yValues);
     }
@@ -1515,6 +1573,55 @@ class EegBackend {
       15,
     );
     return waves;
+  }
+
+  List<double> _minMaxDownsample(List<double> data, int targetPoints) {
+    final count = data.length;
+    if (count <= targetPoints) {
+      return data;
+    }
+    final numBins = targetPoints ~/ 2;
+    if (numBins <= 0) return data;
+    final binSize = count / numBins;
+    final result = List<double>.filled(numBins * 2, 0.0);
+    var writeIdx = 0;
+
+    for (var bin = 0; bin < numBins; bin++) {
+      final startIdx = (bin * binSize).round();
+      var endIdx = ((bin + 1) * binSize).round();
+      if (endIdx > count) endIdx = count;
+      if (startIdx >= endIdx) continue;
+
+      var minVal = data[startIdx];
+      var maxVal = data[startIdx];
+      var minPos = startIdx;
+      var maxPos = startIdx;
+
+      for (var i = startIdx + 1; i < endIdx; i++) {
+        final val = data[i];
+        if (val < minVal) {
+          minVal = val;
+          minPos = i;
+        }
+        if (val > maxVal) {
+          maxVal = val;
+          maxPos = i;
+        }
+      }
+
+      if (minPos < maxPos) {
+        result[writeIdx++] = minVal;
+        result[writeIdx++] = maxVal;
+      } else {
+        result[writeIdx++] = maxVal;
+        result[writeIdx++] = minVal;
+      }
+    }
+
+    if (writeIdx < result.length) {
+      return result.sublist(0, writeIdx);
+    }
+    return result;
   }
 
   int _clampConfigIndex(int index, AppConfig cfg) {
@@ -1885,7 +1992,7 @@ class EegBackend {
     if (eeg.channelSamples.isEmpty || eeg.tfFreqs.isEmpty) return const [];
 
     const epochSeconds = 30;
-    const extensionSec = 1.0;
+    const extensionSec = 5.0;
     final safeEpoch = epoch.clamp(
       0,
       math.max(0, (eeg.durationSeconds / epochSeconds).ceil() - 1),
@@ -1971,50 +2078,18 @@ class EegBackend {
   // ─── Demo viewport ─────────────────────────────────────────────────────────
 
   EegViewport loadDemoViewport() {
-    const channels = ['EEG L', 'EEG R', 'EOG', 'EMG', 'Acc'];
-    const samplesPerChannel = 1000;
-    final channelHeight = 1.0 / channels.length;
-    final points = <Float32List>[];
-
-    for (var channel = 0; channel < channels.length; channel++) {
-      final baseline = channelHeight * (channel + 0.5);
-      final freq = 2.0 + channel * 0.8;
-      final yValues = Float32List(samplesPerChannel);
-      for (var index = 0; index < samplesPerChannel; index++) {
-        final t = index / (samplesPerChannel - 1);
-        final wave = math.sin(t * math.pi * 2 * freq);
-        final spindle = math.sin(t * math.pi * 2 * 13.5) * 0.18;
-        final drift = math.sin(t * math.pi * 2 * 0.18 + channel) * 0.08;
-        yValues[index] =
-            baseline + (wave * 0.10 + spindle + drift) * channelHeight * 0.42;
-      }
-      points.add(yValues);
-    }
-
     return EegViewport(
       sampleRateHz: 256,
       epochSeconds: 30,
-      channelLabels: channels,
-      points: points,
-      stages: const [
-        SleepStage.unknown,
-        SleepStage.wake,
-        SleepStage.n1,
-        SleepStage.n2,
-        SleepStage.n2,
-        SleepStage.n3,
-        SleepStage.n3,
-        SleepStage.n2,
-        SleepStage.rem,
-        SleepStage.rem,
-        SleepStage.wake,
-      ],
-      stagesUncertain: List<bool>.filled(11, false),
-      currentEpoch: 3,
-      visibleStartSeconds: 90,
+      channelLabels: const [],
+      points: const [],
+      stages: const [],
+      stagesUncertain: const [],
+      currentEpoch: 0,
+      visibleStartSeconds: 0,
       visibleDurationSeconds: 30,
-      totalDurationSeconds: 330,
-      sourceDescription: 'Generated demo trace — load an EDF to begin scoring',
+      totalDurationSeconds: 30,
+      sourceDescription: 'No EDF file loaded',
     );
   }
 
@@ -2168,17 +2243,11 @@ List<List<double>> _isolateComputeMorletTf(
   double srate,
   List<double> freqs,
 ) {
-  String getLibraryName() {
-    if (Platform.isMacOS) return 'librust_sleep_eeg.dylib';
-    if (Platform.isWindows) return 'rust_sleep_eeg.dll';
-    return 'librust_sleep_eeg.so';
-  }
-
   _ComputeMorletDart? computeMorlet;
   _FreeMorletDart? freeMorlet;
 
   try {
-    final library = DynamicLibrary.open(getLibraryName());
+    final library = _openDynamicLibrary();
     computeMorlet = library
         .lookupFunction<_ComputeMorletNative, _ComputeMorletDart>(
           'sleep_eeg_compute_morlet_tf',
@@ -2241,17 +2310,11 @@ _SpectrogramResultData _isolateComputeSpectrogram(
   int epochSeconds,
   int extensionSeconds,
 ) {
-  String getLibraryName() {
-    if (Platform.isMacOS) return 'librust_sleep_eeg.dylib';
-    if (Platform.isWindows) return 'rust_sleep_eeg.dll';
-    return 'librust_sleep_eeg.so';
-  }
-
   _ComputeSpectrogramDart? computeSpectrogram;
   _FreeSpectrogramDart? freeSpectrogram;
 
   try {
-    final library = DynamicLibrary.open(getLibraryName());
+    final library = _openDynamicLibrary();
     computeSpectrogram = library.lookupFunction<
         _ComputeSpectrogramNative, _ComputeSpectrogramDart>(
       'sleep_eeg_compute_welch_spectrogram',

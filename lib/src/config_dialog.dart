@@ -210,9 +210,10 @@ class _ConfigDialogState extends State<ConfigDialog> {
                       ),
                     ),
                     // Tab 2: Per-channel display settings
-                    SingleChildScrollView(
+                    Padding(
                       padding: const EdgeInsets.all(12),
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Row(
                             children: [
@@ -288,64 +289,73 @@ class _ConfigDialogState extends State<ConfigDialog> {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 8),
                           const _ChannelHeaderRow(),
-                          for (var i = 0; i < _working.channels.length; i++)
-                            _ChannelConfigTile(
-                              key: ValueKey(_working.channels[i]),
-                              index: i,
-                              config: _working.channels[i],
-                              allChannels: _working.channels,
-                              applyAllChannels: _applyAllChannels,
-                              onApplyAll: (updater) {
-                                setState(() {
-                                  for (final channel in _working.channels) {
-                                    updater(channel);
-                                  }
-                                });
-                                _preview();
-                              },
-                              onMoveUp: i == 0
-                                  ? null
-                                  : () {
-                                      setState(() {
-                                        final channel = _working.channels
-                                            .removeAt(i);
-                                        _working.channels.insert(
-                                          i - 1,
-                                          channel,
-                                        );
-                                      });
-                                      _preview();
-                                    },
-                              onMoveDown: i == _working.channels.length - 1
-                                  ? null
-                                  : () {
-                                      setState(() {
-                                        final channel = _working.channels
-                                            .removeAt(i);
-                                        _working.channels.insert(
-                                          i + 1,
-                                          channel,
-                                        );
-                                      });
-                                      _preview();
-                                    },
-                              onChanged: () {
-                                setState(() {});
-                                _preview();
-                              },
-                              onRemove: () {
-                                setState(() {
-                                  final removed = _working.channels.removeAt(i);
-                                  for (final channel in _working.channels) {
-                                    if (channel.reReference == removed.name) {
-                                      channel.reReference = 'None';
-                                    }
-                                  }
-                                });
-                                _preview();
+                          const SizedBox(height: 4),
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: _working.channels.length,
+                              itemBuilder: (context, i) {
+                                return _ChannelConfigTile(
+                                  key: ValueKey(_working.channels[i]),
+                                  index: i,
+                                  config: _working.channels[i],
+                                  allChannels: _working.channels,
+                                  applyAllChannels: _applyAllChannels,
+                                  onApplyAll: (updater) {
+                                    setState(() {
+                                      for (final channel in _working.channels) {
+                                        updater(channel);
+                                      }
+                                    });
+                                    _preview();
+                                  },
+                                  onMoveUp: i == 0
+                                      ? null
+                                      : () {
+                                          setState(() {
+                                            final channel = _working.channels
+                                                .removeAt(i);
+                                            _working.channels.insert(
+                                              i - 1,
+                                              channel,
+                                            );
+                                          });
+                                          _preview();
+                                        },
+                                  onMoveDown: i == _working.channels.length - 1
+                                      ? null
+                                      : () {
+                                          setState(() {
+                                            final channel = _working.channels
+                                                .removeAt(i);
+                                            _working.channels.insert(
+                                              i + 1,
+                                              channel,
+                                            );
+                                          });
+                                          _preview();
+                                        },
+                                  onChanged: () {
+                                    setState(() {});
+                                    _preview();
+                                  },
+                                  onRemove: () {
+                                    setState(() {
+                                      final removed = _working.channels.removeAt(i);
+                                      for (final channel in _working.channels) {
+                                        if (channel.reReference == removed.name) {
+                                          channel.reReference = 'None';
+                                        }
+                                      }
+                                    });
+                                    _preview();
+                                  },
+                                );
                               },
                             ),
+                          ),
+                          const SizedBox(height: 8),
                           Align(
                             alignment: Alignment.centerLeft,
                             child: OutlinedButton.icon(
@@ -452,12 +462,8 @@ class _ConfigDialogState extends State<ConfigDialog> {
                       padding: const EdgeInsets.all(16),
                       child: Column(
                         children: [
-                          SwitchListTile(
-                            title: const Text(
-                              'Enable Time-Frequency Panel',
-                              style: TextStyle(fontSize: 13),
-                            ),
-                            contentPadding: EdgeInsets.zero,
+                          _SwitchRow(
+                            label: 'Enable Time-Frequency Panel',
                             value: _working.tfEnabled,
                             onChanged: (v) =>
                                 setState(() => _working.tfEnabled = v),
@@ -492,69 +498,17 @@ class _ConfigDialogState extends State<ConfigDialog> {
                               onChanged: (v) =>
                                   _working.tfFreqMax = v ?? _working.tfFreqMax,
                             ),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 3),
-                              child: Row(
-                                children: [
-                                  const SizedBox(
-                                    width: 160,
-                                    child: Text(
-                                      'Display mode',
-                                      style: TextStyle(fontSize: 12),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: DropdownButtonFormField<String>(
-                                      initialValue: _working.tfDisplayMode,
-                                      isExpanded: true,
-                                      decoration: const InputDecoration(
-                                        isDense: true,
-                                        border: OutlineInputBorder(),
-                                        contentPadding: EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                      ),
-                                      items: const [
-                                        DropdownMenuItem(
-                                          value: 'Raw Power',
-                                          child: Text(
-                                            'Raw Power',
-                                            style: TextStyle(fontSize: 12),
-                                          ),
-                                        ),
-                                        DropdownMenuItem(
-                                          value: 'L2-Normalized Power',
-                                          child: Text(
-                                            'L2-Normalized Power',
-                                            style: TextStyle(fontSize: 12),
-                                          ),
-                                        ),
-                                        DropdownMenuItem(
-                                          value: 'dB (median baseline)',
-                                          child: Text(
-                                            'dB (median baseline)',
-                                            style: TextStyle(fontSize: 12),
-                                          ),
-                                        ),
-                                        DropdownMenuItem(
-                                          value: 'Z-Standardized Power',
-                                          child: Text(
-                                            'Z-Standardized Power',
-                                            style: TextStyle(fontSize: 12),
-                                          ),
-                                        ),
-                                      ],
-                                      onChanged: (v) {
-                                        if (v != null) {
-                                          setState(
-                                            () => _working.tfDisplayMode = v,
-                                          );
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                ],
+                            _StringDropdown(
+                              label: 'Display mode',
+                              value: _working.tfDisplayMode,
+                              options: const [
+                                'Raw Power',
+                                'L2-Normalized Power',
+                                'dB (median baseline)',
+                                'Z-Standardized Power',
+                              ],
+                              onChanged: (v) => setState(
+                                () => _working.tfDisplayMode = v,
                               ),
                             ),
                             _NumberRow(
@@ -569,10 +523,8 @@ class _ConfigDialogState extends State<ConfigDialog> {
                               onChanged: (v) => _working.tfPowerMax =
                                   v ?? _working.tfPowerMax,
                             ),
-                            CheckboxListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('Show ridge'),
+                            _CheckboxRow(
+                              label: 'Show ridge',
                               value: _working.tfShowRidge,
                               onChanged: (v) => setState(
                                 () => _working.tfShowRidge = v ?? false,
@@ -771,7 +723,8 @@ class _ChannelDropdown extends StatelessWidget {
             width: 160,
             child: Text(label, style: const TextStyle(fontSize: 12)),
           ),
-          Expanded(
+          SizedBox(
+            width: 180,
             child: DropdownButtonFormField<int>(
               initialValue: value,
               isExpanded: true,
@@ -826,7 +779,8 @@ class _NumberRow extends StatelessWidget {
             width: 160,
             child: Text(label, style: const TextStyle(fontSize: 12)),
           ),
-          Expanded(
+          SizedBox(
+            width: 180,
             child: TextFormField(
               controller: controller,
               keyboardType: const TextInputType.numberWithOptions(
@@ -846,6 +800,89 @@ class _NumberRow extends StatelessWidget {
               ),
               style: const TextStyle(fontSize: 12),
               onChanged: (v) => onChanged(double.tryParse(v)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 160,
+            child: Text(label, style: const TextStyle(fontSize: 12)),
+          ),
+          SizedBox(
+            width: 180,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Switch(
+                value: value,
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CheckboxRow extends StatelessWidget {
+  const _CheckboxRow({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    this.enabled = true,
+  });
+
+  final String label;
+  final bool value;
+  final ValueChanged<bool?> onChanged;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 160,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: enabled ? null : Colors.grey,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 180,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Checkbox(
+                visualDensity: VisualDensity.compact,
+                value: value,
+                onChanged: enabled ? onChanged : null,
+              ),
             ),
           ),
         ],
@@ -909,127 +946,107 @@ class _ChannelConfigTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        border: Border.all(color: const Color(0xFFD0D0D0)),
-        color: const Color(0xFFFAFAFA),
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xFFEEEEEE))),
+        color: Colors.white,
       ),
-      child: Column(
+      child: Row(
         children: [
-          Row(
-            children: [
-              SizedBox(
-                width: 30,
-                child: Text(
+          // Column 1: # Index & Move arrows
+          SizedBox(
+            width: 36,
+            child: Row(
+              children: [
+                Text(
                   '${index + 1}',
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54),
                 ),
-              ),
-              const SizedBox(width: 4),
-              const Icon(Icons.drag_indicator, size: 18, color: Colors.black54),
-              SizedBox(
-                width: 32,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    InkWell(
-                      onTap: onMoveUp,
-                      child: Icon(
-                        Icons.keyboard_arrow_up,
-                        size: 16,
-                        color: onMoveUp == null
-                            ? Colors.black26
-                            : Colors.black54,
+              ],
+            ),
+          ),
+          // Column 2: Drag & Checkbox
+          SizedBox(
+            width: 48,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 16,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      InkWell(
+                        onTap: onMoveUp,
+                        child: Icon(
+                          Icons.keyboard_arrow_up,
+                          size: 12,
+                          color: onMoveUp == null ? Colors.black12 : Colors.black45,
+                        ),
                       ),
-                    ),
-                    InkWell(
-                      onTap: onMoveDown,
-                      child: Icon(
-                        Icons.keyboard_arrow_down,
-                        size: 16,
-                        color: onMoveDown == null
-                            ? Colors.black26
-                            : Colors.black54,
+                      InkWell(
+                        onTap: onMoveDown,
+                        child: Icon(
+                          Icons.keyboard_arrow_down,
+                          size: 12,
+                          color: onMoveDown == null ? Colors.black12 : Colors.black45,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              Checkbox(
-                value: config.displayOnScreen,
-                onChanged: (v) {
-                  config.displayOnScreen = v ?? true;
-                  onChanged();
-                },
-              ),
-              Expanded(
+                const SizedBox(width: 2),
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: Checkbox(
+                    value: config.displayOnScreen,
+                    onChanged: (v) {
+                      config.displayOnScreen = v ?? true;
+                      onChanged();
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Column 3: Channel label (textfield)
+          Expanded(
+            flex: 2,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: SizedBox(
+                height: 28,
                 child: TextFormField(
                   initialValue: config.name,
                   decoration: const InputDecoration(
                     isDense: true,
                     border: OutlineInputBorder(),
                     contentPadding: EdgeInsets.symmetric(
-                      horizontal: 8,
+                      horizontal: 6,
                       vertical: 6,
                     ),
                   ),
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                   onChanged: (v) {
                     config.name = v;
                     onChanged();
                   },
                 ),
               ),
-              const SizedBox(width: 8),
-              DropdownButton<String>(
-                value: _validColor(config.color),
-                items: const [
-                  DropdownMenuItem(value: 'Black', child: Text('Black')),
-                  DropdownMenuItem(value: 'Blue', child: Text('Blue')),
-                  DropdownMenuItem(value: 'Green', child: Text('Green')),
-                  DropdownMenuItem(value: 'Magenta', child: Text('Magenta')),
-                  DropdownMenuItem(value: 'Orange', child: Text('Orange')),
-                  DropdownMenuItem(value: 'Cyan', child: Text('Cyan')),
-                ],
-                onChanged: (v) {
-                  if (v == null) return;
-                  if (applyAllChannels) {
-                    onApplyAll((channel) => channel.color = v);
-                  } else {
-                    config.color = v;
-                    onChanged();
-                  }
-                },
-              ),
-              const SizedBox(width: 8),
-              const Text('Flip', style: TextStyle(fontSize: 12)),
-              Checkbox(
-                value: config.flipPolarity,
-                onChanged: (v) {
-                  config.flipPolarity = v ?? false;
-                  onChanged();
-                },
-              ),
-              IconButton(
-                tooltip: 'Remove from display',
-                icon: const Icon(Icons.delete_outline, size: 18),
-                onPressed: onRemove,
-              ),
-            ],
+            ),
           ),
-          Row(
-            children: [
-              Expanded(
-                child: _InlineNumberField(
-                  label: 'Scale %',
+          // Column 4: Scale
+          SizedBox(
+            width: 72,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: SizedBox(
+                height: 28,
+                child: _CompactNumberField(
                   value: config.scalingFactor,
-                  onChanged: (v) {
-                    final value = v ?? config.scalingFactor;
+                  suffix: '%',
+                  onChanged: (value) {
                     if (applyAllChannels) {
                       onApplyAll((channel) => channel.scalingFactor = value);
                     } else {
@@ -1039,13 +1056,18 @@ class _ChannelConfigTile extends StatelessWidget {
                   },
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _InlineNumberField(
-                  label: 'Vertical shift',
+            ),
+          ),
+          // Column 5: Shift
+          SizedBox(
+            width: 72,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: SizedBox(
+                height: 28,
+                child: _CompactNumberField(
                   value: config.verticalShift,
-                  onChanged: (v) {
-                    final value = v ?? config.verticalShift;
+                  onChanged: (value) {
                     if (applyAllChannels) {
                       onApplyAll((channel) => channel.verticalShift = value);
                     } else {
@@ -1055,28 +1077,74 @@ class _ChannelConfigTile extends StatelessWidget {
                   },
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
+            ),
+          ),
+          // Column 6: Color
+          SizedBox(
+            width: 110,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: SizedBox(
+                height: 28,
                 child: DropdownButtonFormField<String>(
-                  initialValue: _validReference(config.reReference),
-                  isExpanded: true,
+                  value: _validColor(config.color),
                   decoration: const InputDecoration(
-                    labelText: 'Re-reference',
                     isDense: true,
                     border: OutlineInputBorder(),
                     contentPadding: EdgeInsets.symmetric(
-                      horizontal: 8,
+                      horizontal: 6,
                       vertical: 6,
                     ),
                   ),
+                  style: const TextStyle(fontSize: 12, color: Colors.black87),
+                  items: const [
+                    DropdownMenuItem(value: 'Black', child: Text('Black', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'Blue', child: Text('Blue', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'Green', child: Text('Green', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'Magenta', child: Text('Magenta', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'Orange', child: Text('Orange', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'Cyan', child: Text('Cyan', style: TextStyle(fontSize: 12))),
+                  ],
+                  onChanged: (v) {
+                    if (v == null) return;
+                    if (applyAllChannels) {
+                      onApplyAll((channel) => channel.color = v);
+                    } else {
+                      config.color = v;
+                      onChanged();
+                    }
+                  },
+                ),
+              ),
+            ),
+          ),
+          // Column 7: Re-reference
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: SizedBox(
+                height: 28,
+                child: DropdownButtonFormField<String>(
+                  value: _validReference(config.reReference),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 6,
+                    ),
+                  ),
+                  style: const TextStyle(fontSize: 12, color: Colors.black87),
+                  isExpanded: true,
                   items: [
-                    const DropdownMenuItem(value: 'None', child: Text('None')),
+                    const DropdownMenuItem(value: 'None', child: Text('None', style: TextStyle(fontSize: 12))),
                     for (final channel in allChannels)
                       if (!identical(channel, config))
                         DropdownMenuItem(
                           value: channel.name,
                           child: Text(
                             channel.name,
+                            style: const TextStyle(fontSize: 12),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -1088,7 +1156,35 @@ class _ChannelConfigTile extends StatelessWidget {
                   },
                 ),
               ),
-            ],
+            ),
+          ),
+          // Column 8: Flip
+          SizedBox(
+            width: 64,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: Checkbox(
+                    value: config.flipPolarity,
+                    onChanged: (v) {
+                      config.flipPolarity = v ?? false;
+                      onChanged();
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Column 9: Delete
+          SizedBox(
+            width: 42,
+            child: InkWell(
+              onTap: onRemove,
+              child: const Icon(Icons.delete_outline, size: 16, color: Colors.redAccent),
+            ),
           ),
         ],
       ),
@@ -1100,9 +1196,12 @@ class _ChannelConfigTile extends StatelessWidget {
     return colors.contains(color) ? color : 'Black';
   }
 
-  String _validReference(String reference) {
-    if (reference == 'None') return 'None';
-    return allChannels.any((c) => c.name == reference) ? reference : 'None';
+  String _validReference(String? ref) {
+    if (ref == null || ref == 'None') return 'None';
+    if (allChannels.any((c) => c.name == ref && !identical(c, config))) {
+      return ref;
+    }
+    return 'None';
   }
 }
 
@@ -1260,7 +1359,8 @@ class _StringDropdown extends StatelessWidget {
             width: 160,
             child: Text(label, style: const TextStyle(fontSize: 12)),
           ),
-          Expanded(
+          SizedBox(
+            width: 180,
             child: DropdownButtonFormField<String>(
               initialValue: currentValue,
               isExpanded: true,
@@ -1286,6 +1386,8 @@ class _StringDropdown extends StatelessWidget {
     );
   }
 }
+
+
 
 class _InlineNumberField extends StatefulWidget {
   const _InlineNumberField({
@@ -1356,12 +1458,12 @@ class _CompactNumberField extends StatefulWidget {
     required this.value,
     required this.onChanged,
     this.decimals = 1,
-    this.suffix,
+    this.suffix = '',
   });
 
   final double value;
   final int decimals;
-  final String? suffix;
+  final String suffix;
   final void Function(double value) onChanged;
 
   @override
@@ -1375,18 +1477,24 @@ class _CompactNumberFieldState extends State<_CompactNumberField> {
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(
-      text: widget.value.toStringAsFixed(widget.decimals),
-    );
+    _controller = TextEditingController(text: _formatValue(widget.value));
+  }
+
+  String _formatValue(double val) {
+    final formattedVal = val % 1 == 0
+        ? val.toInt().toString()
+        : val.toStringAsFixed(widget.decimals);
+    return '$formattedVal${widget.suffix}';
   }
 
   @override
   void didUpdateWidget(covariant _CompactNumberField oldWidget) {
     super.didUpdateWidget(oldWidget);
     if ((oldWidget.value != widget.value ||
-            oldWidget.decimals != widget.decimals) &&
+            oldWidget.decimals != widget.decimals ||
+            oldWidget.suffix != widget.suffix) &&
         !_focusNode.hasFocus) {
-      _controller.text = widget.value.toStringAsFixed(widget.decimals);
+      _controller.text = _formatValue(widget.value);
     }
   }
 
@@ -1407,18 +1515,27 @@ class _CompactNumberFieldState extends State<_CompactNumberField> {
         signed: true,
       ),
       inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*')),
+        FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*[a-zA-Z%\s]*')),
       ],
-      decoration: InputDecoration(
+      decoration: const InputDecoration(
         isDense: true,
-        suffixText: widget.suffix,
-        border: const OutlineInputBorder(),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+        border: OutlineInputBorder(),
+        contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 5),
       ),
       style: const TextStyle(fontSize: 12),
       onChanged: (value) {
-        final parsed = double.tryParse(value);
-        if (parsed != null) widget.onChanged(parsed);
+        String clean = value;
+        if (widget.suffix.isNotEmpty) {
+          if (clean.endsWith(widget.suffix)) {
+            clean = clean.substring(0, clean.length - widget.suffix.length);
+          }
+          clean = clean.replaceAll(widget.suffix, '');
+        }
+        clean = clean.replaceAll('%', '').replaceAll('Hz', '').trim();
+        final parsed = double.tryParse(clean);
+        if (parsed != null) {
+          widget.onChanged(parsed);
+        }
       },
     );
   }

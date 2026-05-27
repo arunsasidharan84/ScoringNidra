@@ -86,9 +86,25 @@ Future<AppConfig?> tryLoadAutoConfig(String activePath) async {
     }
     return AppConfig.fromPythonJson(json, const []);
   } catch (e) {
-    // Config load error is non-fatal
+    // Config load error is non-fatal — log in debug so issues are visible
+    // ignore: avoid_print
+    print('[ScoringNidra] Config load error ($configPath): $e');
   }
   return null;
+}
+
+/// Save config next to the EDF file (e.g. base.config.json).
+Future<void> saveAutoConfig(String activePath, AppConfig config) async {
+  final dotIdx = activePath.lastIndexOf('.');
+  final base = dotIdx >= 0 ? activePath.substring(0, dotIdx) : activePath;
+  final configPath = '$base.config.json';
+  try {
+    final file = File(configPath);
+    final json = jsonEncode(config.toPythonJson());
+    await file.writeAsString(json);
+  } catch (e) {
+    // Non-fatal
+  }
 }
 
 String _jsonPathForEdf(String edfPath) {

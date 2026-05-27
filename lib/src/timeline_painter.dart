@@ -18,7 +18,7 @@ import 'package:flutter/material.dart';
 import 'models.dart';
 import 'signal_processing.dart' as sp;
 
-const double _leftPad = 40.0;
+const double _leftPad = 90.0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Stage colours matching Python HypnogramWidget
@@ -265,10 +265,10 @@ class SpectrogramPainter extends CustomPainter {
     // Channel label
     _drawText(
       canvas,
-      viewport.channelLabels.isNotEmpty
-          ? viewport.channelLabels[viewport.spectrogramChannelIndex.clamp(
+      viewport.signalChannelLabels.isNotEmpty
+          ? viewport.signalChannelLabels[viewport.spectrogramChannelIndex.clamp(
               0,
-              viewport.channelLabels.length - 1,
+              viewport.signalChannelLabels.length - 1,
             )]
           : 'Ch 1',
       Offset(_leftPad + drawWidth / 2, 8),
@@ -417,8 +417,12 @@ class HypnogramPainter extends CustomPainter {
   static const _yMax = 2.5;
   static const _yRange = _yMax - _yMin;
 
-  double _toCanvasY(double stageY, double canvasH) =>
-      canvasH * (1.0 - (stageY - _yMin) / _yRange);
+  static const _bottomPad = 18.0;
+
+  double _toCanvasY(double stageY, double canvasH) {
+    final plotH = canvasH - _bottomPad;
+    return plotH * (1.0 - (stageY - _yMin) / _yRange);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -432,14 +436,48 @@ class HypnogramPainter extends CustomPainter {
     _drawYAxisLabels(canvas, size);
     _drawHypnogramSteps(canvas, size, stages);
     _drawSwaOverlay(canvas, size);
+    _drawEventOverlay(canvas, size);
     _drawEpochIndicator(canvas, size);
     _drawXAxisTicks(canvas, size);
   }
 
+  void _drawEventOverlay(Canvas canvas, Size size) {
+    final events = viewport.scoredEvents;
+    if (events.isEmpty || viewport.totalDurationSeconds <= 0) return;
+
+    final drawWidth = size.width - _leftPad;
+    final cy = _toCanvasY(2.0, size.height);
+    final totalDuration = viewport.totalDurationSeconds;
+
+    for (final event in events) {
+      final start = math.min(event.startSec, event.endSec);
+      final end = math.max(event.startSec, event.endSec);
+      final x1 = _leftPad + (start / totalDuration) * drawWidth;
+      final x2 = _leftPad + (end / totalDuration) * drawWidth;
+      
+      final baseColor = _eventColor(event.digit);
+      final solidColor = baseColor.withAlpha(255);
+
+      canvas.drawRect(
+        Rect.fromLTRB(x1, cy - 6, math.max(x1 + 1.5, x2), cy + 6),
+        Paint()..color = solidColor,
+      );
+    }
+  }
+
   void _drawBackground(Canvas canvas, Size size) {
+    final plotH = size.height - _bottomPad;
     canvas.drawRect(
       Offset.zero & size,
       Paint()..color = const Color(0xFFfafafa),
+    );
+    // Draw border outline around hypnogram plot
+    canvas.drawRect(
+      Rect.fromLTWH(_leftPad, 0, size.width - _leftPad, plotH),
+      Paint()
+        ..color = const Color(0xFFD0D0D0)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.5,
     );
     // Horizontal guide lines for each stage
     const yVals = [1.0, 0.0, -1.0, -2.0, -3.0];
@@ -454,7 +492,7 @@ class HypnogramPainter extends CustomPainter {
 
   void _drawYAxisLabels(Canvas canvas, Size size) {
     const labels = <(double, String)>[
-      (2.0, '?'),
+      (2.0, 'Event'),
       (1.0, 'W'),
       (0.0, 'REM'),
       (-1.0, 'N1'),
@@ -542,29 +580,11 @@ class HypnogramPainter extends CustomPainter {
       }
     }
 
-    // Dotted line effect — draw dashes
-    final metrics = path.computeMetrics();
-    final dashPaint = Paint()
+    final linePaint = Paint()
       ..color = Colors.black.withOpacity(0.55)
       ..strokeWidth = 1.2
       ..style = PaintingStyle.stroke;
-    const dashLen = 4.0;
-    const gapLen = 3.0;
-    for (final metric in metrics) {
-      double dist = 0;
-      bool drawing = true;
-      while (dist < metric.length) {
-        final next = math.min(
-          dist + (drawing ? dashLen : gapLen),
-          metric.length,
-        );
-        if (drawing) {
-          canvas.drawPath(metric.extractPath(dist, next), dashPaint);
-        }
-        dist = next;
-        drawing = !drawing;
-      }
-    }
+    canvas.drawPath(path, linePaint);
   }
 
   List<double> _medianFilter(List<double> data, int k) {
@@ -586,9 +606,10 @@ class HypnogramPainter extends CustomPainter {
     if (n == 0) return;
     final drawWidth = size.width - _leftPad;
     final x = _leftPad + drawWidth * viewport.currentEpoch / n;
+    final plotH = size.height - _bottomPad;
     canvas.drawLine(
       Offset(x, 0),
-      Offset(x, size.height),
+      Offset(x, plotH),
       Paint()
         ..color = Colors.black
         ..strokeWidth = 1.5,
@@ -603,17 +624,19 @@ class HypnogramPainter extends CustomPainter {
       ..color = Colors.black38
       ..strokeWidth = 0.5;
     final drawWidth = size.width - _leftPad;
+    final plotH = size.height - _bottomPad;
     for (final (label, fx) in ticks) {
       final x = _leftPad + drawWidth * fx;
       canvas.drawLine(
-        Offset(x, size.height - 8),
-        Offset(x, size.height),
+        Offset(x, plotH),
+        Offset(x, plotH + 4),
         tickPaint,
       );
       _drawText(
         canvas,
         label,
-        Offset(x, size.height - 4),
+        Offset(x, plotH + 8),
+        style: _axisTextStyle.copyWith(color: Colors.black54),
         align: TextAlign.center,
       );
     }
@@ -685,7 +708,7 @@ class RectanglePowerPainter extends CustomPainter {
     final maxV = displayPower.reduce(math.max);
     final range = maxV - minV < 1e-20 ? 1.0 : maxV - minV;
 
-    const pad = EdgeInsets.only(left: _leftPad, right: 18, top: 6, bottom: 12);
+    const pad = EdgeInsets.only(left: 35.0, right: 18.0, top: 6.0, bottom: 18.0);
     final plotW = size.width - pad.left - pad.right;
     final plotH = size.height - pad.top - pad.bottom;
     if (plotW <= 0 || plotH <= 0) return;
@@ -766,10 +789,10 @@ class RectanglePowerPainter extends CustomPainter {
     canvas.restore();
 
     // Channel label
-    final channelName = viewport.channelLabels.isNotEmpty
-        ? viewport.channelLabels[viewport.periodogramChannelIndex.clamp(
+    final channelName = viewport.signalChannelLabels.isNotEmpty
+        ? viewport.signalChannelLabels[viewport.periodogramChannelIndex.clamp(
             0,
-            viewport.channelLabels.length - 1,
+            viewport.signalChannelLabels.length - 1,
           )]
         : 'PSD';
     _drawText(
@@ -915,26 +938,28 @@ class TimeFrequencyPainter extends CustomPainter {
         ..strokeWidth = 0.5,
     );
 
-    // Extension epoch overlay (grey on edges — 1s each side out of 32s)
-    const epochSeconds = 30.0;
-    const extensionSeconds = 1.0;
-    final totalSeconds = epochSeconds + 2 * extensionSeconds;
-    final leftFrac = extensionSeconds / totalSeconds;
-    final rightFrac = (totalSeconds - extensionSeconds) / totalSeconds;
-    final overlayPaint = Paint()..color = Colors.black.withOpacity(0.2);
-    canvas.drawRect(
-      Rect.fromLTWH(_leftPad, 0, plotW * leftFrac, plotH),
-      overlayPaint,
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(
-        _leftPad + plotW * rightFrac,
-        0,
-        plotW * (1.0 - rightFrac),
-        plotH,
-      ),
-      overlayPaint,
-    );
+    // Extension epoch overlay (grey on edges)
+    final epochStart = viewport.currentEpoch * 30.0;
+    final leftExt = epochStart - viewport.visibleStartSeconds;
+    final totalDuration = viewport.visibleDurationSeconds;
+    if (totalDuration > 0) {
+      final leftFrac = (leftExt / totalDuration).clamp(0.0, 1.0);
+      final rightFrac = ((leftExt + 30.0) / totalDuration).clamp(0.0, 1.0);
+      final overlayPaint = Paint()..color = Colors.black.withOpacity(0.30);
+      canvas.drawRect(
+        Rect.fromLTWH(_leftPad, 0, plotW * leftFrac, plotH),
+        overlayPaint,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(
+          _leftPad + plotW * rightFrac,
+          0,
+          plotW * (1.0 - rightFrac),
+          plotH,
+        ),
+        overlayPaint,
+      );
+    }
 
     // Y axis labels (linear spacing mapping to image rows)
     _drawYAxis(canvas, plotH, plotW, tfFreqs);
@@ -943,10 +968,10 @@ class TimeFrequencyPainter extends CustomPainter {
     _drawXAxis(canvas, plotH, plotW);
 
     // Channel label
-    final chLabel = viewport.channelLabels.isNotEmpty
-        ? viewport.channelLabels[viewport.tfChannelIndex.clamp(
+    final chLabel = viewport.signalChannelLabels.isNotEmpty
+        ? viewport.signalChannelLabels[viewport.tfChannelIndex.clamp(
             0,
-            viewport.channelLabels.length - 1,
+            viewport.signalChannelLabels.length - 1,
           )]
         : 'TF';
     _drawText(
@@ -1063,10 +1088,10 @@ class TimeFrequencyPainter extends CustomPainter {
   }
 
   void _drawXAxis(Canvas canvas, double plotH, double plotW) {
-    final epochStart = viewport.currentEpoch * 30.0;
-    final t_start = epochStart - 1.0;
-    final t_end = epochStart + 31.0;
-    const totalSec = 32.0;
+    final t_start = viewport.visibleStartSeconds;
+    final totalSec = viewport.visibleDurationSeconds;
+    if (totalSec <= 0) return;
+    final t_end = t_start + totalSec;
     const tick_step = 6.0;
 
     final startTickMultiplier = (t_start / tick_step).ceil();
@@ -1079,7 +1104,7 @@ class TimeFrequencyPainter extends CustomPainter {
 
     for (var m = startTickMultiplier; m <= endTickMultiplier; m++) {
       final tAbs = m * tick_step;
-      final tRel = tAbs - t_start; // relative seconds in 32s window
+      final tRel = tAbs - t_start; // relative seconds in window
       final fx = tRel / totalSec;
       final x = _leftPad + fx * plotW;
 
@@ -1149,7 +1174,6 @@ class TimelinePainter extends CustomPainter {
     _drawChannels(canvas, size, points, n);
     _drawChannelLabels(canvas, size, labels);
     _drawAmplitudeLines(canvas, size, n, viewport.amplitudeRangeUv);
-    _drawEpochLabel(canvas, size);
   }
 
   void _paintEmpty(Canvas canvas, Size size) {
@@ -1180,6 +1204,8 @@ class TimelinePainter extends CustomPainter {
 
   void _drawChannels(Canvas canvas, Size size, List<Float32List> waves, int n) {
     final drawWidth = size.width - _leftPad;
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(_leftPad, 0, drawWidth, size.height));
     for (var ch = 0; ch < n; ch++) {
       if (ch >= waves.length) continue;
       final yValues = waves[ch];
@@ -1209,14 +1235,15 @@ class TimelinePainter extends CustomPainter {
           ..strokeCap = StrokeCap.round,
       );
     }
+    canvas.restore();
   }
 
   void _drawChannelLabels(Canvas canvas, Size size, List<String> labels) {
     final channelHeight = size.height / labels.length;
     final labelStyle = TextStyle(
-      color: Colors.black26, // large grey font matching Python anchor
-      fontSize: 18,
-      fontWeight: FontWeight.w700,
+      color: Colors.black87, // Legible dark color
+      fontSize: 12,          // Professional compact size
+      fontWeight: FontWeight.bold,
       fontFamily: 'sans-serif',
     );
     for (var i = 0; i < labels.length; i++) {
@@ -1224,7 +1251,7 @@ class TimelinePainter extends CustomPainter {
       _drawText(
         canvas,
         labels[i],
-        Offset(_leftPad + 8.0, cy),
+        Offset(8.0, cy), // Aligned inside the 90px left margin
         style: labelStyle,
         align: TextAlign.left,
       );
@@ -1238,7 +1265,9 @@ class TimelinePainter extends CustomPainter {
     double amplitudeRangeUv,
   ) {
     final channelHeight = size.height / n;
-    const guideOffset = 0.42; // fraction of lane height above/below centre
+    final refUv = viewport.referenceAmplitudeLineUv;
+    final maxUv = amplitudeRangeUv > 0 ? amplitudeRangeUv : 1e-6;
+    final guideOffset = 0.42 * (refUv / maxUv);
 
     // Draw guide lines for every channel
     for (var i = 0; i < n; i++) {
@@ -1277,9 +1306,10 @@ class TimelinePainter extends CustomPainter {
           fontSize: 10,
           color: Colors.black54,
         );
+        final refStr = refUv % 1 == 0 ? refUv.toStringAsFixed(0) : refUv.toStringAsFixed(1);
         _drawText(
           canvas,
-          '+${amplitudeRangeUv.toStringAsFixed(1)}',
+          '+$refStr',
           Offset(_leftPad - 4, plusY),
           style: tickStyle,
           align: TextAlign.right,
@@ -1293,7 +1323,7 @@ class TimelinePainter extends CustomPainter {
         );
         _drawText(
           canvas,
-          '-${amplitudeRangeUv.toStringAsFixed(1)}',
+          '-$refStr',
           Offset(_leftPad - 4, minusY),
           style: tickStyle,
           align: TextAlign.right,
@@ -1316,25 +1346,7 @@ class TimelinePainter extends CustomPainter {
     );
   }
 
-  void _drawEpochLabel(Canvas canvas, Size size) {
-    final stage = viewport.currentStage;
-    final isUncertain = viewport.currentEpoch < viewport.stagesUncertain.length &&
-        viewport.stagesUncertain[viewport.currentEpoch];
-    final suffix = isUncertain ? ' (not sure)' : '';
-    final label =
-        'Epoch ${viewport.currentEpoch + 1}/${viewport.epochCount}  |  ${stage.label}$suffix';
-    _drawText(
-      canvas,
-      label,
-      Offset(size.width / 2, 22),
-      style: const TextStyle(
-        fontSize: 14,
-        color: Colors.black,
-        fontWeight: FontWeight.w700,
-      ),
-      align: TextAlign.center,
-    );
-  }
+
 
   @override
   bool shouldRepaint(TimelinePainter old) =>
@@ -1436,7 +1448,7 @@ class SelectionOverlayPainter extends CustomPainter {
     final leftFrac = paddingSec / displayTotalSec;
     final rightFrac = 1.0 - leftFrac;
 
-    final paint = Paint()..color = Colors.black.withOpacity(0.04);
+    final paint = Paint()..color = Colors.black.withOpacity(0.30);
 
     // Left shaded region
     canvas.drawRect(

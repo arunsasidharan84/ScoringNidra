@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sleep_eeg_desktop/src/edf_loader.dart';
+import 'package:scoring_nidra/src/edf_loader.dart';
 
 void main() {
   test('loads a minimal EDF file', () {

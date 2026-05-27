@@ -863,27 +863,38 @@ List<List<double>> computeMultitaperSpectrogram(
 
   final SG = List.generate(half, (_) => Float64List(J));
 
+  // Pre-allocate structures to avoid allocations in loops
+  final seg = Float64List(L);
+  final re = Float64List(R);
+  final im = Float64List(R);
+  final SW = Float64List(half);
+
+  final scale = 1.0 / (sfreq * K);
+  final ln10 = math.ln10;
+
   for (var j = 0; j < J; j++) {
     final start = j * delta_j;
-    final seg = Float64List(L);
     final avail = math.min(L, N - start);
+    
+    seg.fillRange(0, L, 0.0);
     if (avail > 0) {
       for (var i = 0; i < avail; i++) {
         seg[i] = x[start + i];
       }
     }
 
-    final SW = Float64List(half);
+    SW.fillRange(0, half, 0.0);
+
     for (var k = 0; k < K; k++) {
-      final re = Float64List(R);
-      final im = Float64List(R);
       final taper = tapers[k];
+      
+      re.fillRange(0, R, 0.0);
+      im.fillRange(0, R, 0.0);
       for (var i = 0; i < L; i++) {
         re[i] = taper[i] * seg[i];
       }
       _fft(re, im);
 
-      final scale = 1.0 / (sfreq * K);
       SW[0] += (re[0] * re[0] + im[0] * im[0]) * scale;
       for (var f = 1; f < half - 1; f++) {
         SW[f] += (re[f] * re[f] + im[f] * im[f]) * scale;
@@ -892,7 +903,7 @@ List<List<double>> computeMultitaperSpectrogram(
     }
 
     for (var f = 0; f < half; f++) {
-      SG[f][j] = 10.0 * math.log(SW[f] + 1.0) / math.ln10;
+      SG[f][j] = 10.0 * math.log(SW[f] + 1.0) / ln10;
     }
   }
 

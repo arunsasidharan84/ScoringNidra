@@ -9,7 +9,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 biquad = "0.5"
-edf = "0.3"
 matfile = "0.5"
 num-complex = "0.4"
 rayon = "1.10"

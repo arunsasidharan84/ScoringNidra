@@ -18,16 +18,16 @@ import 'scoring_io.dart';
 import 'signal_processing.dart' as sp;
 import 'timeline_painter.dart';
 
-const double _plotLeftPadding = 40.0;
+const double _plotLeftPadding = 90.0;
 
-class SleepEegApp extends StatelessWidget {
-  const SleepEegApp({super.key});
+class ScoringNidraApp extends StatelessWidget {
+  const ScoringNidraApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Scoring Hero',
+      title: 'ScoringNidra',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF3B6EA5),
@@ -36,21 +36,21 @@ class SleepEegApp extends StatelessWidget {
         useMaterial3: false,
         fontFamily: Platform.isMacOS ? '.AppleSystemUIFont' : null,
       ),
-      home: const SleepEegHome(),
+      home: const ScoringNidraHome(),
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-class SleepEegHome extends StatefulWidget {
-  const SleepEegHome({super.key});
+class ScoringNidraHome extends StatefulWidget {
+  const ScoringNidraHome({super.key});
 
   @override
-  State<SleepEegHome> createState() => _SleepEegHomeState();
+  State<ScoringNidraHome> createState() => _ScoringNidraHomeState();
 }
 
-class _SleepEegHomeState extends State<SleepEegHome> {
+class _ScoringNidraHomeState extends State<ScoringNidraHome> {
   final EegBackend _backend = EegBackend();
   final FocusNode _viewerFocusNode = FocusNode();
   AppConfig _config = AppConfig();
@@ -154,6 +154,9 @@ class _SleepEegHomeState extends State<SleepEegHome> {
         activeConfig.referenceAmplitudeLineUv = _config.referenceAmplitudeLineUv;
       }
       activeConfig.bindLoadedChannels(rawEeg.channelLabels);
+      if (autoCfg == null) {
+        await saveAutoConfig(path, activeConfig);
+      }
 
       // Pre-compute night products. Per-epoch wavelets are computed lazily.
       _setStatus('Computing spectrogram and power summaries…');
@@ -193,6 +196,21 @@ class _SleepEegHomeState extends State<SleepEegHome> {
     } on Object catch (e) {
       _setStatus('Could not load ${_basename(path)}: $e');
     }
+  }
+
+  // ─── Close file ────────────────────────────────────────────────────────────
+
+  void _closeCurrentFile() {
+    _tfRefreshTimer?.cancel();
+    _tfRefreshTimer = null;
+    setState(() {
+      _activePath = null;
+      _loadedEeg = null;
+      _comparisonStages = null;
+      _viewport = _backend.loadDemoViewport();
+      _config = AppConfig();
+      _status = 'File closed — load an EDF file to begin scoring';
+    });
   }
 
   // ─── Scoring ──────────────────────────────────────────────────────────────
@@ -254,7 +272,7 @@ class _SleepEegHomeState extends State<SleepEegHome> {
     _jumpToEpoch(v.currentEpoch + 1 + delta);
   }
 
-  void _jumpToEpoch(int epochOneBased) {
+  void _jumpToEpoch(int epochOneBased, [bool claimFocus = true]) {
     final v = _viewport;
     if (v == null) return;
     final epoch = (epochOneBased - 1).clamp(0, v.epochCount - 1);
@@ -277,7 +295,9 @@ class _SleepEegHomeState extends State<SleepEegHome> {
         _status =
             'Epoch ${epoch + 1} / ${v.epochCount}  |  ${v.stages[epoch].label}';
       });
-      _viewerFocusNode.requestFocus();
+      if (claimFocus) {
+        _viewerFocusNode.requestFocus();
+      }
     }
     if (eeg != null && _config.tfEnabled) {
       _scheduleTimeFrequencyRefresh(serial);
@@ -845,16 +865,14 @@ class _SleepEegHomeState extends State<SleepEegHome> {
             final q = settings['q'] as double;
             final fmax = settings['fmax'] as double;
 
-            final events = await Isolate.run(() {
-              return sp.detectKComplex(
-                signal,
-                sfreq,
-                amin: amin,
-                dmax_s: dmax_s,
-                q: q,
-                fmax: fmax,
-              );
-            });
+            final events = await _runKComplexIsolate(
+              signal,
+              sfreq,
+              amin,
+              dmax_s,
+              q,
+              fmax,
+            );
 
             if (mounted) Navigator.of(context).pop();
 
@@ -975,18 +993,16 @@ class _SleepEegHomeState extends State<SleepEegHome> {
             final dmax_s = settings['dmax_s'] as double;
             final q = settings['q'] as double;
 
-            final events = await Isolate.run(() {
-              return sp.detectSpindles(
-                signal,
-                sfreq,
-                fmin: fmin,
-                fmax: fmax,
-                amin: amin,
-                dmin_s: dmin_s,
-                dmax_s: dmax_s,
-                q: q,
-              );
-            });
+            final events = await _runSpindleIsolate(
+              signal,
+              sfreq,
+              fmin,
+              fmax,
+              amin,
+              dmin_s,
+              dmax_s,
+              q,
+            );
 
             if (mounted) Navigator.of(context).pop();
 
@@ -1282,10 +1298,14 @@ class _SleepEegHomeState extends State<SleepEegHome> {
         setState(() {
           _config = newCfg;
         });
+        if (_activePath != null) {
+          await saveAutoConfig(_activePath!, newCfg);
+        }
 
         final eeg = _loadedEeg;
         final v = _viewport;
         if (eeg != null && v != null) {
+          _backend.clearDisplayCache();
           _setStatus('Applying loaded configuration…');
           final newEeg = await _backend.computeNightProducts(eeg, newCfg);
           final newViewport = await _backend.viewportFromEeg(
@@ -1325,7 +1345,7 @@ class _SleepEegHomeState extends State<SleepEegHome> {
 
     if (outputFile != null) {
       try {
-        final json = jsonEncode(_config.toJson());
+        final json = jsonEncode(_config.toPythonJson());
         await File(outputFile).writeAsString(json);
         _setStatus('Configuration saved to $outputFile');
       } catch (e) {
@@ -1352,8 +1372,12 @@ class _SleepEegHomeState extends State<SleepEegHome> {
           setState(() {
             _config = newCfg;
           });
+          if (_activePath != null) {
+            saveAutoConfig(_activePath!, newCfg);
+          }
           final eeg = _loadedEeg;
           if (eeg != null) {
+            _backend.clearDisplayCache();
             // Recompute with new channel config
             _setStatus('Recomputing spectrogram for new channel…');
             Future.microtask(() async {
@@ -1407,6 +1431,8 @@ class _SleepEegHomeState extends State<SleepEegHome> {
       setState(() => _config = newCfg);
       return;
     }
+    // Clear waveform cache so filter/display changes take immediate effect.
+    _backend.clearDisplayCache();
     final rebuilt = _backend
         .rebuildViewportForEpochSync(v, eeg, v.currentEpoch, config: newCfg)
         .copyWith(stages: v.stages, stagesUncertain: v.stagesUncertain);
@@ -1415,10 +1441,14 @@ class _SleepEegHomeState extends State<SleepEegHome> {
       _viewport = rebuilt;
       _status = 'Configuration preview applied';
     });
+    if (_activePath != null) {
+      saveAutoConfig(_activePath!, newCfg);
+    }
     if (_config.tfEnabled) {
       _scheduleTimeFrequencyRefresh(++_navigationSerial);
     }
   }
+
 
   // ─── Platform menus ───────────────────────────────────────────────────────
 
@@ -1427,13 +1457,13 @@ class _SleepEegHomeState extends State<SleepEegHome> {
       if (PlatformProvidedMenuItem.hasMenu(PlatformProvidedMenuItemType.about))
         const PlatformProvidedMenuItem(type: PlatformProvidedMenuItemType.about)
       else
-        const PlatformMenuItem(label: 'About Scoring Hero'),
+        const PlatformMenuItem(label: 'About ScoringNidra'),
       if (PlatformProvidedMenuItem.hasMenu(PlatformProvidedMenuItemType.quit))
         const PlatformProvidedMenuItem(type: PlatformProvidedMenuItemType.quit),
     ];
 
     return [
-      PlatformMenu(label: 'Scoring Hero', menus: appMenuItems),
+      PlatformMenu(label: 'ScoringNidra', menus: appMenuItems),
       // ─── Data ─────────────────────────────────────────────────────────
       PlatformMenu(
         label: 'Data',
@@ -1453,6 +1483,10 @@ class _SleepEegHomeState extends State<SleepEegHome> {
           PlatformMenuItem(
             label: 'Load Zurich data file (.r09)',
             onSelected: () => _openRecording(kind: 'r09'),
+          ),
+          PlatformMenuItem(
+            label: 'Close Current File',
+            onSelected: _closeCurrentFile,
           ),
         ],
       ),
@@ -1744,7 +1778,7 @@ class _SleepEegHomeState extends State<SleepEegHome> {
                         ? const Center(child: CircularProgressIndicator())
                         : _ScoringHeroSurface(
                             viewport: viewport,
-                            onJump: _jumpToEpoch,
+                            onJump: (epoch) => _jumpToEpoch(epoch),
                             swaSlider: _swaSlider,
                             onSwaSlider: (v) => setState(() => _swaSlider = v),
                             onSelectionEnd: _updateSelection,
@@ -1788,7 +1822,7 @@ class _Toolbar extends StatefulWidget {
   });
 
   final EegViewport? viewport;
-  final ValueChanged<int> onJump;
+  final void Function(int, [bool]) onJump;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onUnscored;
@@ -1807,8 +1841,29 @@ class _Toolbar extends StatefulWidget {
 }
 
 class _ToolbarState extends State<_Toolbar> {
-  late final TextEditingController _ctrl = TextEditingController(text: '1');
+  late final TextEditingController _ctrl;
   final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    final epoch = widget.viewport?.currentEpoch ?? 0;
+    _ctrl = TextEditingController(text: '${epoch + 1}');
+    _focusNode.addListener(_handleFocusChange);
+  }
+
+  void _handleFocusChange() {
+    if (!_focusNode.hasFocus) {
+      final val = int.tryParse(_ctrl.text);
+      if (val != null && widget.viewport != null) {
+        final clamped = val.clamp(1, widget.viewport!.epochCount);
+        widget.onJump(clamped, true);
+      } else {
+        final epoch = widget.viewport?.currentEpoch ?? 0;
+        _ctrl.text = '${epoch + 1}';
+      }
+    }
+  }
 
   @override
   void didUpdateWidget(covariant _Toolbar old) {
@@ -1821,6 +1876,7 @@ class _ToolbarState extends State<_Toolbar> {
 
   @override
   void dispose() {
+    _focusNode.removeListener(_handleFocusChange);
     _ctrl.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -1844,22 +1900,63 @@ class _ToolbarState extends State<_Toolbar> {
               SizedBox(
                 width: 56,
                 height: 24,
-                child: TextField(
-                  controller: _ctrl,
-                  focusNode: _focusNode,
-                  enabled: enabled,
-                  keyboardType: TextInputType.number,
-                  textAlign: TextAlign.center,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 4,
+                child: Shortcuts(
+                  shortcuts: const <ShortcutActivator, Intent>{
+                    SingleActivator(LogicalKeyboardKey.keyW): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.digit1): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.digit2): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.digit3): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.keyR): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.keyI): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.delete): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.keyA): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.f1): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.f2): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.f3): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.f4): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.f5): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.f6): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.f7): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.f8): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.f9): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.f10): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.f11): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.f12): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.backspace): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.keyZ): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.keyK, control: true): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.keyS, control: true, shift: true): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.keyC, control: true): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.keyF, control: true): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.arrowRight): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.arrowLeft): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.keyQ): DoNothingIntent(),
+                  },
+                  child: TextField(
+                    controller: _ctrl,
+                    focusNode: _focusNode,
+                    enabled: enabled,
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 4,
+                      ),
                     ),
+                    style: const TextStyle(fontSize: 12),
+                    onTapOutside: (_) => _focusNode.unfocus(),
+                    onSubmitted: (_) => _focusNode.unfocus(),
+                    onChanged: (text) {
+                      final val = int.tryParse(text);
+                      if (val != null && widget.viewport != null) {
+                        final clamped = val.clamp(1, widget.viewport!.epochCount);
+                        widget.onJump(clamped, false);
+                      }
+                    },
                   ),
-                  style: const TextStyle(fontSize: 12),
-                  onSubmitted: (v) => widget.onJump(int.tryParse(v) ?? 1),
                 ),
               ),
               if (widget.viewport != null)
@@ -2228,7 +2325,9 @@ class _Panel extends StatelessWidget {
             color: Colors.white,
             border: Border.all(color: const Color(0xFFD0D0D0)),
           ),
-          child: CustomPaint(painter: painter, child: const SizedBox.expand()),
+          child: ClipRect(
+            child: CustomPaint(painter: painter, child: const SizedBox.expand()),
+          ),
         ),
       ),
     );
@@ -2288,9 +2387,11 @@ class _ClickablePainterPanel extends StatelessWidget {
                       .clamp(0.0, 1.0);
               onTapFraction(fx);
             },
-            child: CustomPaint(
-              painter: painter,
-              child: const SizedBox.expand(),
+            child: ClipRect(
+              child: CustomPaint(
+                painter: painter,
+                child: const SizedBox.expand(),
+              ),
             ),
           ),
         ),
@@ -2589,3 +2690,47 @@ final _shortcuts = <ShortcutActivator, Intent>{
 // ─────────────────────────────────────────────────────────────────────────────
 
 String _basename(String path) => path.split(Platform.pathSeparator).last;
+
+Future<List<(double, double)>> _runKComplexIsolate(
+  List<double> signal,
+  double sfreq,
+  double amin,
+  double dmax_s,
+  double q,
+  double fmax,
+) {
+  return Isolate.run(() {
+    return sp.detectKComplex(
+      signal,
+      sfreq,
+      amin: amin,
+      dmax_s: dmax_s,
+      q: q,
+      fmax: fmax,
+    );
+  });
+}
+
+Future<List<(double, double)>> _runSpindleIsolate(
+  List<double> signal,
+  double sfreq,
+  double fmin,
+  double fmax,
+  double amin,
+  double dmin_s,
+  double dmax_s,
+  double q,
+) {
+  return Isolate.run(() {
+    return sp.detectSpindles(
+      signal,
+      sfreq,
+      fmin: fmin,
+      fmax: fmax,
+      amin: amin,
+      dmin_s: dmin_s,
+      dmax_s: dmax_s,
+      q: q,
+    );
+  });
+}

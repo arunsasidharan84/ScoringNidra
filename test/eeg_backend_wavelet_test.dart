@@ -1,8 +1,8 @@
 import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sleep_eeg_desktop/src/eeg_backend.dart';
-import 'package:sleep_eeg_desktop/src/models.dart';
+import 'package:scoring_nidra/src/eeg_backend.dart';
+import 'package:scoring_nidra/src/models.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

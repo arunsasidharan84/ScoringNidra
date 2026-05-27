@@ -217,6 +217,7 @@ class EegViewport {
     this.periodogramChannelIndex = 0,
     this.tfChannelIndex = 0,
     this.amplitudeRangeUv = 75.0,
+    this.referenceAmplitudeLineUv = 37.5,
     this.selectionStartSec,
     this.selectionEndSec,
     this.selectionChannel,
@@ -266,6 +267,7 @@ class EegViewport {
   final int periodogramChannelIndex;
   final int tfChannelIndex;
   final double amplitudeRangeUv;
+  final double referenceAmplitudeLineUv;
   final String tfDisplayMode;
   final double tfPowerMin;
   final double tfPowerMax;
@@ -315,6 +317,7 @@ class EegViewport {
     int? periodogramChannelIndex,
     int? tfChannelIndex,
     double? amplitudeRangeUv,
+    double? referenceAmplitudeLineUv,
     double? selectionStartSec,
     double? selectionEndSec,
     int? selectionChannel,
@@ -370,6 +373,8 @@ class EegViewport {
           periodogramChannelIndex ?? this.periodogramChannelIndex,
       tfChannelIndex: tfChannelIndex ?? this.tfChannelIndex,
       amplitudeRangeUv: amplitudeRangeUv ?? this.amplitudeRangeUv,
+      referenceAmplitudeLineUv:
+          referenceAmplitudeLineUv ?? this.referenceAmplitudeLineUv,
       selectionStartSec: clearSelection
           ? null
           : (selectionStartSec ?? this.selectionStartSec),
