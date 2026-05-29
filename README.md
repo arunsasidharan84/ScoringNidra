@@ -1,11 +1,6 @@
 # ScoringNidra
 
-**ScoringNidra** is a high-performance, cross-platform sleep EEG viewer and scorer. It is a modern recreation of the Python-based [ScoringHero](https://github.com/arunsasidharan84/ScoringHero) repository, rebuilt from the ground up using **Flutter** for a premium, high-refresh-rate UI and **Rust** for native-speed signal processing.
-
-> [!IMPORTANT]
-> **Repository & Folder Renaming**:
-> - You can rename your local workspace folder from `CCS_SleepScoringApp` to `ScoringNidra`.
-> - To rename the repository on GitHub, navigate to your repository page, click **Settings**, change the **Repository name** field to `ScoringNidra`, and click **Rename**.
+**ScoringNidra** is a high-performance, cross-platform sleep EEG viewer and scorer. It is a recreation of the Python-based [ScoringHero](https://github.com/SvennoNito/ScoringHero) repository, rebuilt from the ground up using **Flutter** for a more lightweight and responsive UI and **Rust** for native-speed signal processing.
 
 ---
 
