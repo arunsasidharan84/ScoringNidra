@@ -31,7 +31,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/v') ||
-      contains(toJSON(github.event.commits), '[build desktop]')
+      contains(toJSON(github.event.commits), '[build desktop]') ||
+      contains(toJSON(github.event.commits), '[build release]')
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -187,7 +188,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/v') ||
-      contains(toJSON(github.event.commits), '[build desktop]')
+      contains(toJSON(github.event.commits), '[build desktop]') ||
+      contains(toJSON(github.event.commits), '[build release]')
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -335,7 +337,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/v') ||
-      contains(toJSON(github.event.commits), '[build desktop]')
+      contains(toJSON(github.event.commits), '[build desktop]') ||
+      contains(toJSON(github.event.commits), '[build release]')
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -523,7 +526,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) &&
-      (startsWith(github.ref, 'refs/tags/v') || contains(toJSON(github.event.commits), '[build desktop]'))
+      (startsWith(github.ref, 'refs/tags/v') || contains(toJSON(github.event.commits), '[build desktop]') || contains(toJSON(github.event.commits), '[build release]'))
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
