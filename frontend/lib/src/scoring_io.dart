@@ -531,6 +531,31 @@ Future<ScoringLoadResult?> importScoringDialog(
   }
 }
 
+Future<ScoringLoadResult?> loadScoringFile(
+  String path, {
+  int epochCount = 0,
+  void Function(String msg)? onStatus,
+}) async {
+  try {
+    final detection = await detectScoringFormat(path);
+    final parsed = await _parseScoringFile(
+      path,
+      detection.parserType,
+      epochCount,
+    );
+    return ScoringLoadResult(
+      parsed.stages,
+      parsed.stagesUncertain,
+      stagesConfidence: parsed.stagesConfidence,
+      stageProbabilities: parsed.stageProbabilities,
+      sourceFormat: detection.displayName,
+    );
+  } catch (e) {
+    onStatus?.call('Failed to load scoring: $e');
+    return null;
+  }
+}
+
 class ScoringFormatDetection {
   const ScoringFormatDetection({
     required this.parserType,

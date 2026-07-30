@@ -216,8 +216,8 @@ The wavelet panel is disabled by default to preserve the primary scoring layout 
 | `3` | Score current epoch as **N3** |
 | `R` | Score current epoch as **REM** |
 | `I` | Score current epoch as **Inconclusive** |
-| `Delete` | Clear current epoch score |
-| `Q` | Toggle low confidence (uncertainty) |
+| `N` / `0` / `Delete` | Score current epoch as **None / Unscored (`?`)** |
+| `U` / `Q` | Toggle low confidence (uncertainty) |
 | `ArrowRight` | Go to the next epoch |
 | `ArrowLeft` | Go to the previous epoch |
 | `A` | Draw **Artefact** event |
@@ -227,3 +227,20 @@ The wavelet panel is disabled by default to preserve the primary scoring layout 
 | `Ctrl+K` | Open K-Complex Detection (MT-KCD) |
 | `Ctrl+Shift+S` | Open Spindle Detection (MT-Spindle) |
 | `Ctrl+C` | Open Settings/Configuration Dialog |
+
+---
+
+## 📜 Release Log & Changelog
+
+### Version 1.3.0
+*   **Branding & Name Consistency**: Application name unified as **CCS Sleep Studio** across code, UI labels, documentation, and Debian/RPM packaging scripts.
+*   **Batch Scoring Comparison**: Added interactive 2-column paired comparison table in Batch tab with **Auto-Pairing 2 Folders** support. Computes epoch-by-epoch agreement, Cohen's $\kappa$, stage-by-stage precision/recall/F1 scores, and exports `Batch_Scoring_Comparison_Master.csv`.
+*   **AnalyseNidra Non-Sleep Stage Parsing**: Updated Rust backend `analyseNidra/src/hypnogram.rs` to seamlessly parse non-sleep stages (`Inconclusive`, `None`, `Unscored`, `Unknown`, `?`, `Uncertain`, `Uncertainty`, `NOT SCORED`, `N/A`) without raising errors or crashing.
+*   **Keyboard Shortcuts**: Added `N`, `0`, `Numpad 0`, `Delete` for **None / Unscored (`?`)** stage and `U` / `Q` for **Uncertainty** toggle during manual scoring.
+*   **Auto Spectrogram Power Scaling**: Implemented automatic 2nd–98th percentile log10 power colorbar scaling on load while retaining editable min/max values in config dialog.
+*   **EDF Utilities Module**: Added interactive single-file and batch utility dialog for signal downsampling, time cropping, channel renaming, channel filtering, and patient header anonymization (Patient ID, Name, Sex, DOB).
+*   **Nihon Kohden (.EEG) Native Rust Loader & EDF Converter**: Implemented binary parser in Rust (`bridge/src/nk.rs`) porting Brainstorm's `in_fopen_nk.m`, `in_fread_nk.m`, and `in_channel_nk.m`. Supports reading `.EEG`, `.PNT` metadata, and `.21E` electrode mapping files with EDF conversion export.
+
+### Version 1.2.12
+*   Initial release of **AnalyseNidra** regional spectral analysis, EEG spectrogram heatmaps, and MT-Spindle / MT-KCD detection pipelines.
+

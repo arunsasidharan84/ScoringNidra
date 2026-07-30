@@ -34,6 +34,7 @@ impl Stage {
             "N2" => Ok(Self::N2),
             "N3" => Ok(Self::N3),
             "REM" | "R" => Ok(Self::Rem),
+            "INCONCLUSIVE" | "NONE" | "UNSCORED" | "UNKNOWN" | "?" | "UNCERTAIN" | "UNCERTAINTY" | "NOT SCORED" | "UNS" | "" | "-" | "N/A" => Ok(Self::Unscored),
             other => bail!("unsupported sleep stage {other:?}"),
         }
     }
@@ -175,7 +176,7 @@ pub fn sleep_architecture(input: &[Stage], window: ArchitectureWindow) -> SleepA
 
     let first_sleep = stages
         .iter()
-        .position(|&stage| stage != Stage::Wake)
+        .position(|&stage| matches!(stage, Stage::N1 | Stage::N2 | Stage::N3 | Stage::Rem))
         .unwrap_or(stages.len());
     let sleep_onset_minutes = first_sleep as f64 * epoch_minutes;
     let sol = (sleep_onset_minutes - window.lights_off_minutes).max(0.0);

@@ -1236,6 +1236,15 @@ class EegBackend {
     // 5. TF normalisation stats (night-wide median + IQR per TF freq)
     final (:median, :iqr) = sp.computeTfNormStats(power, freqs, tfFreqs);
 
+    final autoSpecLimits = computeSpectrogramAutoLimits(
+      power,
+      freqs,
+      config.spectrogramFreqMin,
+      config.spectrogramFreqMax,
+    );
+    config.spectrogramPowerMin = autoSpecLimits.min;
+    config.spectrogramPowerMax = autoSpecLimits.max;
+
     final spectrogramImage = await _spectrogramPowerToImage(
       power,
       freqs,
@@ -2966,6 +2975,36 @@ class EegBackend {
           sampled[(sampled.length * 0.98).floor().clamp(0, sampled.length - 1)];
       return (min: lower, max: math.max(lower + 1e-6, upper));
     });
+  }
+
+  ({double min, double max}) computeSpectrogramAutoLimits(
+    List<List<double>> power,
+    List<double> freqs,
+    double freqMin,
+    double freqMax,
+  ) {
+    if (power.isEmpty || freqs.isEmpty) return (min: -1.0, max: 3.0);
+    final lowHz = math.min(freqMin, freqMax);
+    final highHz = math.max(freqMin, freqMax);
+    final sampled = <double>[];
+    for (var e = 0; e < power.length; e++) {
+      for (var f = 0; f < freqs.length; f++) {
+        if (freqs[f] >= lowHz && freqs[f] <= highHz) {
+          final val = power[e][f];
+          if (val > 0 && val.isFinite) {
+            final logPsd = math.log(val) / math.ln10;
+            sampled.add(logPsd);
+          }
+        }
+      }
+    }
+    if (sampled.isEmpty) return (min: -1.0, max: 3.0);
+    sampled.sort();
+    final lower = sampled[(sampled.length * 0.02).floor()];
+    final upper =
+        sampled[(sampled.length * 0.98).floor().clamp(0, sampled.length - 1)];
+    final safeUpper = upper > lower ? upper : lower + 1.0;
+    return (min: (lower * 10).round() / 10, max: (safeUpper * 10).round() / 10);
   }
 
   Future<ui.Image> _spectrogramPowerToImage(

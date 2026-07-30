@@ -10,7 +10,7 @@
   <b>National Institute of Mental Health and Neurosciences (NIMHANS)</b>, Bangalore, India.
 </p>
 
-**Version:** 1.2.12
+**Version:** 1.3.0
 
 Welcome to **CCS Sleep Studio**, a high-performance, cross-platform desktop application designed to assist researchers and clinicians in sleep EEG visualization, event annotation, sleep scoring, automated staging, and advanced EEG analysis.
 
@@ -201,10 +201,11 @@ We have enriched the UI with several flexibility and control improvements:
 *   **Confidence Flagging**: Press `Q` (or the "Toggle uncertain" toolbar button) to flag an epoch as uncertain. Flagged epochs are visually marked on the hypnogram step timeline and saved with low-confidence metadata.
 *   Automatic save prompts on close if epochs remain unscored.
 
-### Compare Scoring
+### Compare & Batch Scoring Comparison
 *   Import a second scoring file (**Compare → Import scoring for comparison**) to evaluate against the current scoring.
 *   **Disagreement Bands**: Epochs with conflicting scores are highlighted directly in the hypnogram timeline with a transparent red background band.
 *   **Premium Scoring Report Card**: Displays Cohen's Kappa score ($\kappa$) with strength labels, a dynamically color-shaded Confusion Matrix (green for agreement, red for disagreement), and per-stage Precision, Recall, and F1-Scores.
+*   **Batch Scoring Comparison**: Pair multiple scoring files interactively or auto-pair entire directories of reference vs comparison files. Generates a collated `Batch_Scoring_Comparison_Master.csv` output.
 
 ![Compare Scoring Window](screenshots/compare_scoring.png)
 ![Scoring Comparison Report](screenshots/comparison_report.png)
@@ -216,16 +217,19 @@ We have enriched the UI with several flexibility and control improvements:
 *   Double-click on an existing event to remove it.
 *   **Erase events in selection**: Draw selection boxes and press `Backspace` to delete all events inside the drawn region.
 
-### File Formats & Loaders
+### File Formats & EDF Utilities
+*   **Nihon Kohden (.EEG) Native Reader**: Built-in Rust binary parser for Nihon Kohden `.EEG`, `.PNT` metadata, and `.21E` channel mapping files, with physical voltage calibration and EDF export.
+*   **EDF Utilities Module**: Perform signal downsampling, time cropping, channel renaming, channel filtering, and patient header anonymization (Patient ID, Name, Sex, DOB) for single files or in batch.
 *   **Orbit (.orb / .signal) File Loader**: Native binary and JSON-lines parser for Orbit recordings, complete with gap-filling, linear interpolation, and automatic calibration scaling.
 *   **EDF+ Annotations Reader**: Parses TAL structures directly from annotations channels.
 *   **Polyman CSV Interval Loader**: Imports sleep events and labels from Polyman text logs.
 *   **YASA List Parser**: Retains epoch alignment by preserving empty lines as unscored elements.
 
-### Signal Filtering
+### Signal Filtering & Auto Spectrogram
 *   Apply high-pass, low-pass, and notch filters independently to each channel.
 *   Zero-phase Chebyshev Type 2 filters.
 *   Live magnitude response plot updates in real time within the configuration dialog.
+*   **Auto Spectrogram Power Scaling**: Automatically calculates 2nd and 98th log10 power percentiles upon loading signals, keeping color scaling ranges modifiable.
 
 ---
 
@@ -239,8 +243,8 @@ We have enriched the UI with several flexibility and control improvements:
 | `3` | Score current epoch as **N3** |
 | `R` | Score current epoch as **REM** |
 | `I` | Score current epoch as **Inconclusive** |
-| `Delete` | Clear current epoch score |
-| `Q` | Toggle low confidence (uncertainty) |
+| `N` / `0` / `Delete` | Score current epoch as **None / Unscored (`?`)** |
+| `U` / `Q` | Toggle low confidence (uncertainty) |
 | `ArrowRight` | Go to the next epoch |
 | `ArrowLeft` | Go to the previous epoch |
 | `A` | Draw **Artefact** event |
@@ -291,3 +295,20 @@ flutter build macos --release
 flutter build windows --release
 iscc windows/installer.iss
 ```
+
+---
+
+## 📜 Release Log & Changelog
+
+### Version 1.3.0
+*   **Branding & Name Consistency**: Application name unified as **CCS Sleep Studio** across code, UI labels, documentation, and Debian/RPM packaging scripts.
+*   **Batch Scoring Comparison**: Added interactive 2-column paired comparison table in Batch tab with **Auto-Pairing 2 Folders** support. Computes epoch-by-epoch agreement, Cohen's $\kappa$, stage-by-stage precision/recall/F1 scores, and exports `Batch_Scoring_Comparison_Master.csv`.
+*   **AnalyseNidra Non-Sleep Stage Parsing**: Updated Rust backend `analyseNidra/src/hypnogram.rs` to seamlessly parse non-sleep stages (`Inconclusive`, `None`, `Unscored`, `Unknown`, `?`, `Uncertain`, `Uncertainty`, `NOT SCORED`, `N/A`) without raising errors or crashing.
+*   **Keyboard Shortcuts**: Added `N`, `0`, `Numpad 0`, `Delete` for **None / Unscored (`?`)** stage and `U` / `Q` for **Uncertainty** toggle during manual scoring.
+*   **Auto Spectrogram Power Scaling**: Implemented automatic 2nd–98th percentile log10 power colorbar scaling on load while retaining editable min/max values in config dialog.
+*   **EDF Utilities Module**: Added interactive single-file and batch utility dialog for signal downsampling, time cropping, channel renaming, channel filtering, and patient header anonymization (Patient ID, Name, Sex, DOB).
+*   **Nihon Kohden (.EEG) Native Rust Loader & EDF Converter**: Implemented binary parser in Rust (`bridge/src/nk.rs`) porting Brainstorm's `in_fopen_nk.m`, `in_fread_nk.m`, and `in_channel_nk.m`. Supports reading `.EEG`, `.PNT` metadata, and `.21E` electrode mapping files with EDF conversion export.
+
+### Version 1.2.12
+*   Initial release of **AnalyseNidra** regional spectral analysis, EEG spectrogram heatmaps, and MT-Spindle / MT-KCD detection pipelines.
+

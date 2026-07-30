@@ -14,6 +14,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'autoscore_command.dart';
 import 'config_dialog.dart';
 import 'detection_dialogs.dart';
+import 'edf_utilities_dialog.dart';
 import 'eeg_backend.dart';
 import 'models.dart';
 import 'publication_sleep_report.dart';
@@ -91,6 +92,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
 
   // Batch AnalyseNidra State
   final List<Map<String, String>> _batchAnalysePairs = [];
+  final List<Map<String, String>> _batchComparisonPairs = [];
   final TextEditingController _batchAnalyseEegController =
       TextEditingController(text: 'AF7,AF8');
   final TextEditingController _batchAnalyseRefController =
@@ -180,7 +182,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                 ? 'Load Zurich file (.r09)'
                 : (kind == 'orbit'
                       ? 'Load Orbit file (.orb, .signal)'
-                      : 'Load EDF/Orbit file (.edf, .orb, .signal)')),
+                      : 'Load EDF/Orbit file (.edf, .eeg, .EEG, .orb, .signal)')),
       type: FileType.custom,
       allowedExtensions: kind == 'mat'
           ? ['mat']
@@ -1871,6 +1873,123 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
     );
   }
 
+  Future<void> _addComparisonPairManually() async {
+    final resultA = await FilePicker.pickFiles(
+      dialogTitle: 'Select Reference Scoring File (File 1)',
+    );
+    if (resultA == null || resultA.files.single.path == null) return;
+
+    final resultB = await FilePicker.pickFiles(
+      dialogTitle: 'Select Comparison Scoring File (File 2)',
+    );
+    if (resultB == null || resultB.files.single.path == null) return;
+
+    setState(() {
+      _batchComparisonPairs.add({
+        'fileA': resultA.files.single.path!,
+        'fileB': resultB.files.single.path!,
+      });
+    });
+  }
+
+  Future<void> _autoPairComparisonFolders() async {
+    final dirA = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Select Folder 1 (Reference Scoring files)',
+    );
+    if (dirA == null) return;
+
+    final dirB = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Select Folder 2 (Comparison Scoring files)',
+    );
+    if (dirB == null) return;
+
+    final filesA = Directory(dirA).listSync().whereType<File>().toList();
+    final filesB = Directory(dirB).listSync().whereType<File>().toList();
+
+    int added = 0;
+    for (final fa in filesA) {
+      final baseA = fa.uri.pathSegments.last.replaceAll(RegExp(r'\.[^.]+$'), '');
+      for (final fb in filesB) {
+        final baseB = fb.uri.pathSegments.last.replaceAll(RegExp(r'\.[^.]+$'), '');
+        if (baseA.toLowerCase() == baseB.toLowerCase() || baseA.contains(baseB) || baseB.contains(baseA)) {
+          _batchComparisonPairs.add({
+            'fileA': fa.path,
+            'fileB': fb.path,
+          });
+          added++;
+          break;
+        }
+      }
+    }
+
+    setState(() {});
+    _setStatus('Auto-paired $added file(s) between Folder 1 and Folder 2');
+  }
+
+  Future<void> _executeBatchScoringComparison() async {
+    if (_batchComparisonPairs.isEmpty) {
+      _setStatus('No comparison pairs added');
+      return;
+    }
+
+    final savePath = await FilePicker.saveFile(
+      dialogTitle: 'Save Batch Scoring Comparison Master CSV',
+      fileName: 'Batch_Scoring_Comparison_Master.csv',
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
+    );
+    if (savePath == null) return;
+
+    _setStatus('Running batch scoring comparison for ${_batchComparisonPairs.length} pair(s)…');
+
+    final csvRows = <String>[];
+    csvRows.add(
+      'Reference_File,Comparison_File,Total_Epochs,Matched_Epochs,'
+      'Overall_Agreement_Pct,Cohens_Kappa,Kappa_Strength,'
+      'Wake_F1,N1_F1,N2_F1,N3_F1,REM_F1,'
+      'Wake_Sensitivity,N1_Sensitivity,N2_Sensitivity,N3_Sensitivity,REM_Sensitivity',
+    );
+
+    int count = 0;
+    for (final pair in _batchComparisonPairs) {
+      final fileA = pair['fileA'];
+      final fileB = pair['fileB'];
+      if (fileA == null || fileB == null || fileA.isEmpty || fileB.isEmpty) continue;
+
+      try {
+        final resA = await loadScoringFile(fileA);
+        final resB = await loadScoringFile(fileB);
+        if (resA == null || resB == null) continue;
+
+        final metrics = _StageComparisonMetrics.compute(resA.stages, resB.stages);
+        final f1 = metrics.f1Score;
+        final sens = metrics.recall;
+
+        final baseA = File(fileA).uri.pathSegments.last;
+        final baseB = File(fileB).uri.pathSegments.last;
+
+        csvRows.add(
+          '$baseA,$baseB,${metrics.totalEpochs},${metrics.comparedEpochs},'
+          '${metrics.overallAgreement.toStringAsFixed(2)},${metrics.cohensKappa.toStringAsFixed(4)},${metrics.kappaStrength},'
+          '${(f1[SleepStage.wake] ?? 0).toStringAsFixed(3)},${(f1[SleepStage.n1] ?? 0).toStringAsFixed(3)},'
+          '${(f1[SleepStage.n2] ?? 0).toStringAsFixed(3)},${(f1[SleepStage.n3] ?? 0).toStringAsFixed(3)},'
+          '${(f1[SleepStage.rem] ?? 0).toStringAsFixed(3)},'
+          '${(sens[SleepStage.wake] ?? 0).toStringAsFixed(3)},${(sens[SleepStage.n1] ?? 0).toStringAsFixed(3)},'
+          '${(sens[SleepStage.n2] ?? 0).toStringAsFixed(3)},${(sens[SleepStage.n3] ?? 0).toStringAsFixed(3)},'
+          '${(sens[SleepStage.rem] ?? 0).toStringAsFixed(3)}',
+        );
+        count++;
+      } catch (e) {
+        debugPrint('Error comparing $fileA vs $fileB: $e');
+      }
+    }
+
+    final csvFile = File(savePath);
+    await csvFile.writeAsString(csvRows.join('\n'));
+
+    _setStatus('Batch comparison complete: $count pairs processed. Master CSV saved to ${csvFile.uri.pathSegments.last}');
+  }
+
   void _showSelectionHelp() {
     showDialog(
       context: context,
@@ -2102,6 +2221,16 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             }
           }
         },
+      ),
+    );
+  }
+
+  void _openEdfUtilitiesDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => EdfUtilitiesDialog(
+        initialEdfPath: _activePath,
+        availableChannels: _viewport?.channelLabels ?? const [],
       ),
     );
   }
@@ -3703,6 +3832,10 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             onSelected: _zoomOnSelectedEeg,
           ),
           PlatformMenuItem(
+            label: 'EDF Utilities (Reduce, Crop, Rename, Anonymize)…',
+            onSelected: _openEdfUtilitiesDialog,
+          ),
+          PlatformMenuItem(
             label: 'Export Sleep Report (PDF)',
             onSelected: _exportSleepReport,
           ),
@@ -4080,9 +4213,12 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
           scrollDirection: Axis.horizontal,
           child: SizedBox(
             width: math.max(1080, constraints.maxWidth - 32),
-            child: Row(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                 // Left Column: Batch Auto-Scoring
                 if (!buildLite) ...[
                   Expanded(
@@ -4760,11 +4896,126 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                 ),
               ],
             ),
-          ),
+            const SizedBox(height: 16),
+            Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: const BorderSide(color: Color(0xFFD0D0D0)),
+              ),
+              color: Colors.white,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.compare_arrows, color: Colors.orange),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Batch Scoring Comparison (Inter-rater & Model Agreement)',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Spacer(),
+                        ElevatedButton.icon(
+                          onPressed: _autoPairComparisonFolders,
+                          icon: const Icon(Icons.folder_copy, size: 16),
+                          label: const Text('Auto-Pair 2 Folders…'),
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          onPressed: _addComparisonPairManually,
+                          icon: const Icon(Icons.add, size: 16),
+                          label: const Text('Add Pair'),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 24),
+                    const Text(
+                      'Paired Scoring Files (Reference vs Comparison):',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      height: 160,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: _batchComparisonPairs.isEmpty
+                          ? const Center(
+                              child: Text('No scoring file pairs added yet. Click "Auto-Pair 2 Folders…" or "Add Pair".', style: TextStyle(color: Colors.grey)),
+                            )
+                          : ListView.builder(
+                              itemCount: _batchComparisonPairs.length,
+                              itemBuilder: (context, index) {
+                                final pair = _batchComparisonPairs[index];
+                                final fileA = pair['fileA'] ?? '';
+                                final fileB = pair['fileB'] ?? '';
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  child: Row(
+                                    children: [
+                                      Text('#${index + 1}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Container(
+                                          padding: const EdgeInsets.all(6),
+                                          decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(4)),
+                                          child: Text('Ref: ${_basename(fileA)}', overflow: TextOverflow.ellipsis),
+                                        ),
+                                      ),
+                                      const Padding(
+                                        padding: EdgeInsets.symmetric(horizontal: 8),
+                                        child: Icon(Icons.compare_arrows, size: 18, color: Colors.grey),
+                                      ),
+                                      Expanded(
+                                        child: Container(
+                                          padding: const EdgeInsets.all(6),
+                                          decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(4)),
+                                          child: Text('Cmp: ${_basename(fileB)}', overflow: TextOverflow.ellipsis),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                        onPressed: () {
+                                          setState(() {
+                                            _batchComparisonPairs.removeAt(index);
+                                          });
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 40,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white),
+                        onPressed: _batchComparisonPairs.isEmpty ? null : _executeBatchScoringComparison,
+                        icon: const Icon(Icons.analytics),
+                        label: const Text('Run Batch Comparison & Generate Master CSV', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  ),
+);
+}
 
   // ─── Build ────────────────────────────────────────────────────────────────
 
@@ -5065,6 +5316,8 @@ class _ToolbarState extends State<_Toolbar> {
                         DoNothingIntent(),
                     SingleActivator(LogicalKeyboardKey.keyR): DoNothingIntent(),
                     SingleActivator(LogicalKeyboardKey.keyI): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.keyN): DoNothingIntent(),
+                    SingleActivator(LogicalKeyboardKey.keyU): DoNothingIntent(),
                     SingleActivator(LogicalKeyboardKey.delete):
                         DoNothingIntent(),
                     SingleActivator(LogicalKeyboardKey.keyA): DoNothingIntent(),
@@ -6228,6 +6481,15 @@ final _shortcuts = <ShortcutActivator, Intent>{
   const SingleActivator(LogicalKeyboardKey.keyI): const _ScoreIntent(
     SleepStage.inconclusive,
   ),
+  const SingleActivator(LogicalKeyboardKey.keyN): const _ScoreIntent(
+    SleepStage.unknown,
+  ),
+  const SingleActivator(LogicalKeyboardKey.digit0): const _ScoreIntent(
+    SleepStage.unknown,
+  ),
+  const SingleActivator(LogicalKeyboardKey.numpad0): const _ScoreIntent(
+    SleepStage.unknown,
+  ),
   const SingleActivator(LogicalKeyboardKey.delete): const _ScoreIntent(
     SleepStage.unknown,
   ),
@@ -6264,6 +6526,8 @@ final _shortcuts = <ShortcutActivator, Intent>{
       const _PreviousEpochIntent(),
   // Confidence uncertainty toggle
   const SingleActivator(LogicalKeyboardKey.keyQ):
+      const _ToggleUncertaintyIntent(),
+  const SingleActivator(LogicalKeyboardKey.keyU):
       const _ToggleUncertaintyIntent(),
 };
 
@@ -7444,6 +7708,14 @@ class _StageComparisonMetrics {
   final Map<SleepStage, double> precision;
   final Map<SleepStage, double> recall;
   final Map<SleepStage, double> f1Score;
+
+  String get kappaStrength {
+    if (cohensKappa < 0.20) return 'Slight';
+    if (cohensKappa < 0.40) return 'Fair';
+    if (cohensKappa < 0.60) return 'Moderate';
+    if (cohensKappa < 0.80) return 'Substantial';
+    return 'Almost Perfect';
+  }
 
   factory _StageComparisonMetrics.compute(
     List<SleepStage> current,
