@@ -5,6 +5,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -334,6 +335,17 @@ Future<ScoringLoadResult> _loadJsonScoring(String path, int epochCount) async {
       List.filled(epochCount, SleepStage.unknown),
       List.filled(epochCount, false),
     );
+  }
+
+  if (epochCount <= 0) {
+    int maxEp = entries.length;
+    for (final entry in entries) {
+      if (entry is Map<String, dynamic>) {
+        final ep = (entry['epoch'] as num?)?.toInt();
+        if (ep != null && ep > maxEp) maxEp = ep;
+      }
+    }
+    epochCount = math.max(1, maxEp);
   }
 
   final stages = List.filled(epochCount, SleepStage.unknown);
@@ -727,6 +739,9 @@ Future<List<SleepStage>> _loadYasaScoring(String path, int epochCount) async {
     lastLine--;
   }
   final stageLines = nonSpaceLines.sublist(firstLine, lastLine);
+  if (epochCount <= 0) {
+    epochCount = math.max(1, stageLines.length);
+  }
   final stages = List.filled(epochCount, SleepStage.unknown);
   for (var i = 0; i < stageLines.length && i < epochCount; i++) {
     stages[i] = _stageFromYasaLabel(stageLines[i]);
@@ -738,23 +753,41 @@ List<SleepStage> _loadSomnomedicsTxtScoring(
   List<String> lines,
   int epochCount,
 ) {
+  if (epochCount <= 0) {
+    epochCount = math.max(1, lines.length);
+  }
   final stages = List.filled(epochCount, SleepStage.unknown);
   var epoch = 0;
   for (final line in lines) {
-    if (epoch >= epochCount) break;
+    if (epochCount > 0 && epoch >= epochCount) break;
     final separator = line.lastIndexOf(';');
     if (separator < 0) continue;
     final timeText = line.substring(0, separator).trim();
     if (!RegExp(r'^\d{1,2}:\d{2}:\d{2}').hasMatch(timeText)) continue;
     stages[epoch++] = _stageFromYasaLabel(line.substring(separator + 1));
   }
-  return stages;
+  return (epoch > 0 && epoch < epochCount) ? stages.sublist(0, epoch) : stages;
 }
 
 List<SleepStage> _loadPolymanTxtScoring(
   List<String> nonSpaceLines,
   int epochCount,
 ) {
+  if (epochCount <= 0) {
+    int maxEp = 0;
+    for (final line in nonSpaceLines) {
+      final parts = line.split(',');
+      if (parts.length >= 4) {
+        final onsetSec = double.tryParse(parts[2].trim());
+        final durationSec = double.tryParse(parts[3].trim());
+        if (onsetSec != null && durationSec != null) {
+          final endEpoch = ((onsetSec + durationSec) / 30.0).ceil();
+          if (endEpoch > maxEp) maxEp = endEpoch;
+        }
+      }
+    }
+    epochCount = math.max(1, maxEp > 0 ? maxEp : nonSpaceLines.length);
+  }
   final stages = List.filled(epochCount, SleepStage.unknown);
   for (final line in nonSpaceLines) {
     if (line.isEmpty) continue;
@@ -876,6 +909,30 @@ Future<ScoringLoadResult> _loadEdfAnnotationsScoring(
 
   final decoded = ascii.decode(annotationBytes.toBytes(), allowInvalid: true);
   final tals = decoded.split('\x00');
+
+  if (epochCount <= 0) {
+    int maxEp = 0;
+    for (final tal in tals) {
+      if (tal.trim().isEmpty || !tal.contains('\x14')) continue;
+      final parts = tal.split('\x14');
+      if (parts.isEmpty) continue;
+      final timePart = parts[0];
+      double onset = 0.0;
+      double duration = 0.0;
+      if (timePart.contains('\x15')) {
+        final subParts = timePart.split('\x15');
+        onset = double.tryParse(subParts[0]) ?? 0.0;
+        duration = double.tryParse(subParts[1]) ?? 0.0;
+      } else {
+        onset = double.tryParse(timePart) ?? 0.0;
+      }
+      final dur = duration > 0 ? duration : 30.0;
+      final endEpoch = ((onset + dur) / 30.0).ceil();
+      if (endEpoch > maxEp) maxEp = endEpoch;
+    }
+    epochCount = math.max(1, maxEp);
+  }
+
   final stages = List.filled(epochCount, SleepStage.unknown);
   final stagesUncertain = List.filled(epochCount, false);
   final stagesConfidence = List<double?>.filled(epochCount, null);
@@ -966,7 +1023,7 @@ Future<List<SleepStage>> _loadSleetripScoring(
   int epochCount,
 ) async {
   final lines = (await File(path).readAsString()).split('\n');
-  if (lines.isEmpty) return List.filled(epochCount, SleepStage.unknown);
+  if (lines.isEmpty) return epochCount > 0 ? List.filled(epochCount, SleepStage.unknown) : <SleepStage>[];
 
   // Find header row
   final header = lines[0]
@@ -975,6 +1032,11 @@ Future<List<SleepStage>> _loadSleetripScoring(
       .toList();
   final stageCol = header.indexOf('stage');
   if (stageCol < 0) throw FormatException('No "stage" column in Sleeptrip CSV');
+
+  if (epochCount <= 0) {
+    final validLines = lines.skip(1).where((l) => l.trim().isNotEmpty && l.split(',').length > stageCol).length;
+    epochCount = math.max(1, validLines);
+  }
 
   final stages = List.filled(epochCount, SleepStage.unknown);
   var row = 0;
@@ -996,6 +1058,14 @@ Future<List<SleepStage>> _loadSleetripScoring(
 ///   0 → Wake, 1 → N1, 2 → N2, 3 → N3, 4 → N3, 5 → REM, 8 → unknown
 Future<List<SleepStage>> _loadVisScoring(String path, int epochCount) async {
   final lines = (await File(path).readAsString()).split('\n');
+  if (epochCount <= 0) {
+    int valid = 0;
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.isNotEmpty && _isDigitStr(trimmed[0])) valid++;
+    }
+    epochCount = math.max(1, valid);
+  }
   final stages = List.filled(epochCount, SleepStage.unknown);
   var row = 0;
   for (final line in lines) {
@@ -1015,6 +1085,10 @@ Future<List<SleepStage>> _loadSleepylandScoring(
   int epochCount,
 ) async {
   final lines = (await File(path).readAsString()).split('\n');
+  if (epochCount <= 0) {
+    final valid = lines.skip(1).where((l) => l.trim().isNotEmpty).length;
+    epochCount = math.max(1, valid);
+  }
   final stages = List.filled(epochCount, SleepStage.unknown);
   var row = 0;
   for (final line in lines.skip(1)) {
@@ -1031,6 +1105,10 @@ Future<List<SleepStage>> _loadSleepylandScoring(
 
 Future<List<SleepStage>> _loadGsscScoring(String path, int epochCount) async {
   final lines = (await File(path).readAsString()).split('\n');
+  if (epochCount <= 0) {
+    final valid = lines.skip(1).where((l) => l.trim().isNotEmpty && !l.startsWith('Epoch')).length;
+    epochCount = math.max(1, valid);
+  }
   final stages = List.filled(epochCount, SleepStage.unknown);
   var row = 0;
   SleepStage? lastScored;

@@ -1907,15 +1907,32 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
     );
     if (dirB == null) return;
 
-    final filesA = Directory(dirA).listSync().whereType<File>().toList();
-    final filesB = Directory(dirB).listSync().whereType<File>().toList();
+    bool isScoringFile(File f) {
+      final name = f.uri.pathSegments.last.toLowerCase();
+      if (name.startsWith('.') || name.contains('_config.json')) return false;
+      return name.endsWith('.json') ||
+          name.endsWith('.txt') ||
+          name.endsWith('.csv') ||
+          name.endsWith('.vis') ||
+          name.endsWith('.annot') ||
+          name.endsWith('.edf');
+    }
+
+    final filesA = Directory(dirA).listSync().whereType<File>().where(isScoringFile).toList();
+    final filesB = Directory(dirB).listSync().whereType<File>().toList().where(isScoringFile).toList();
+
+    String cleanStem(String path) {
+      String stem = File(path).uri.pathSegments.last.replaceAll(RegExp(r'\.[^.]+$'), '');
+      stem = stem.replaceAll(RegExp(r'(_scoring|_manual|_auto|_yasa|_sleeptrip|_vis|_hypnogram)$', caseSensitive: false), '');
+      return stem.trim().toLowerCase();
+    }
 
     int added = 0;
     for (final fa in filesA) {
-      final baseA = fa.uri.pathSegments.last.replaceAll(RegExp(r'\.[^.]+$'), '');
+      final stemA = cleanStem(fa.path);
       for (final fb in filesB) {
-        final baseB = fb.uri.pathSegments.last.replaceAll(RegExp(r'\.[^.]+$'), '');
-        if (baseA.toLowerCase() == baseB.toLowerCase() || baseA.contains(baseB) || baseB.contains(baseA)) {
+        final stemB = cleanStem(fb.path);
+        if (stemA == stemB || stemA.contains(stemB) || stemB.contains(stemA)) {
           _batchComparisonPairs.add({
             'fileA': fa.path,
             'fileB': fb.path,
@@ -1963,7 +1980,10 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
       try {
         final resA = await loadScoringFile(fileA);
         final resB = await loadScoringFile(fileB);
-        if (resA == null || resB == null) continue;
+        if (resA == null || resB == null || resA.stages.isEmpty || resB.stages.isEmpty) {
+          debugPrint('Could not load stages for $fileA vs $fileB (resA: ${resA?.stages.length}, resB: ${resB?.stages.length})');
+          continue;
+        }
 
         final metrics = _StageComparisonMetrics.compute(resA.stages, resB.stages);
         final f1 = metrics.f1Score;
@@ -1991,7 +2011,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
     final csvFile = File(savePath);
     await csvFile.writeAsString(csvRows.join('\n'));
 
-    _setStatus('Batch comparison complete: $count pairs processed. Master CSV saved to ${csvFile.uri.pathSegments.last}');
+    _setStatus('Batch comparison complete: $count pair(s) processed. Master CSV saved to ${csvFile.uri.pathSegments.last}');
   }
 
   void _showSelectionHelp() {
