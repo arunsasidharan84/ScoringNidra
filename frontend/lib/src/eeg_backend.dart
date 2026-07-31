@@ -1242,8 +1242,10 @@ class EegBackend {
       config.spectrogramFreqMin,
       config.spectrogramFreqMax,
     );
-    config.spectrogramPowerMin = autoSpecLimits.min;
-    config.spectrogramPowerMax = autoSpecLimits.max;
+    if (config.spectrogramPowerMin == -1.0 && config.spectrogramPowerMax == 3.0) {
+      config.spectrogramPowerMin = autoSpecLimits.min;
+      config.spectrogramPowerMax = autoSpecLimits.max;
+    }
 
     final spectrogramImage = await _spectrogramPowerToImage(
       power,

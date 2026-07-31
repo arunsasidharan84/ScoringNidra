@@ -4912,15 +4912,16 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                     Row(
                       children: [
                         const Icon(Icons.compare_arrows, color: Colors.orange),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Batch Scoring Comparison (Inter-rater & Model Agreement)',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
+                        const Expanded(
+                          child: Text(
+                            'Batch Scoring Comparison (Inter-rater & Model Agreement)',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
-                        const Spacer(),
+                        const SizedBox(width: 8),
                         ElevatedButton.icon(
                           onPressed: _autoPairComparisonFolders,
                           icon: const Icon(Icons.folder_copy, size: 16),
