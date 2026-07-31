@@ -985,13 +985,14 @@ class EegBackend {
     }
     final isNk = lower.endsWith('.eeg');
     final isEmbla = lower.endsWith('.ebm');
-    final loader = isEmbla
-        ? (_loadEmbla ?? _loadEdf)
-        : (isNk ? (_loadNk ?? _loadEdf) : _loadEdf);
-    if (loader != null && _freeEdf != null) {
+
+    if (isNk) {
+      if (_loadNk == null) {
+        throw FormatException('Nihon Kohden native library loader is not initialized.');
+      }
       final pathPtr = path.toNativeUtf8();
       try {
-        final edfPtr = loader(pathPtr, scaleVoltsToMicrovolts);
+        final edfPtr = _loadNk!(pathPtr, false);
         if (edfPtr != nullptr) {
           final edf = edfPtr.ref;
           final channelLabels = <String>[];
@@ -1009,9 +1010,94 @@ class EegBackend {
 
           final sampleRate = edf.sampleRateHz;
           final durationSec = edf.durationSeconds;
-          final recordingStartTime = path.toLowerCase().endsWith('.edf')
-              ? EdfLoader.readStartDateTime(path)
-              : null;
+          _freeEdf?.call(edfPtr);
+
+          return LoadedEeg(
+            sampleRateHz: sampleRate,
+            channelLabels: channelLabels,
+            channelSamples: channelSamples,
+            recordingStartTime: null,
+            sourceDescription:
+                '${channelLabels.length} channels, ${sampleRate.toStringAsFixed(1)} Hz, ${(durationSec / 60).toStringAsFixed(1)} min (Nihon Kohden)',
+          );
+        } else {
+          throw FormatException('Native Nihon Kohden parser returned null for $path. File may be truncated or corrupted.');
+        }
+      } catch (e) {
+        if (e is FormatException) rethrow;
+        throw FormatException('Failed to load Nihon Kohden recording ($path): $e');
+      } finally {
+        calloc.free(pathPtr);
+      }
+    }
+
+    if (isEmbla) {
+      if (_loadEmbla == null) {
+        throw FormatException('EMBLA native library loader is not initialized.');
+      }
+      final pathPtr = path.toNativeUtf8();
+      try {
+        final edfPtr = _loadEmbla!(pathPtr, false);
+        if (edfPtr != nullptr) {
+          final edf = edfPtr.ref;
+          final channelLabels = <String>[];
+          final channelSamples = <List<double>>[];
+
+          for (var i = 0; i < edf.signalCount; i++) {
+            final sig = edf.signals[i];
+            channelLabels.add(sig.label.toDartString());
+
+            final count = sig.sampleCount;
+            final samples = Float64List(count);
+            samples.setAll(0, sig.samples.asTypedList(count));
+            channelSamples.add(samples);
+          }
+
+          final sampleRate = edf.sampleRateHz;
+          final durationSec = edf.durationSeconds;
+          _freeEdf?.call(edfPtr);
+
+          return LoadedEeg(
+            sampleRateHz: sampleRate,
+            channelLabels: channelLabels,
+            channelSamples: channelSamples,
+            recordingStartTime: null,
+            sourceDescription:
+                '${channelLabels.length} channels, ${sampleRate.toStringAsFixed(1)} Hz, ${(durationSec / 60).toStringAsFixed(1)} min (EMBLA)',
+          );
+        } else {
+          throw FormatException('Native EMBLA parser returned null for $path. No valid .ebm files found in folder.');
+        }
+      } catch (e) {
+        if (e is FormatException) rethrow;
+        throw FormatException('Failed to load EMBLA recording ($path): $e');
+      } finally {
+        calloc.free(pathPtr);
+      }
+    }
+
+    if (_loadEdf != null && _freeEdf != null) {
+      final pathPtr = path.toNativeUtf8();
+      try {
+        final edfPtr = _loadEdf!(pathPtr, scaleVoltsToMicrovolts);
+        if (edfPtr != nullptr) {
+          final edf = edfPtr.ref;
+          final channelLabels = <String>[];
+          final channelSamples = <List<double>>[];
+
+          for (var i = 0; i < edf.signalCount; i++) {
+            final sig = edf.signals[i];
+            channelLabels.add(sig.label.toDartString());
+
+            final count = sig.sampleCount;
+            final samples = Float64List(count);
+            samples.setAll(0, sig.samples.asTypedList(count));
+            channelSamples.add(samples);
+          }
+
+          final sampleRate = edf.sampleRateHz;
+          final durationSec = edf.durationSeconds;
+          final recordingStartTime = EdfLoader.readStartDateTime(path);
 
           _freeEdf!(edfPtr);
 
@@ -1021,7 +1107,7 @@ class EegBackend {
             channelSamples: channelSamples,
             recordingStartTime: recordingStartTime,
             sourceDescription:
-                '${channelLabels.length} channels, ${sampleRate.toStringAsFixed(1)} Hz, ${(durationSec / 60).toStringAsFixed(1)} min (${isNk ? 'Nihon Kohden' : 'native'})',
+                '${channelLabels.length} channels, ${sampleRate.toStringAsFixed(1)} Hz, ${(durationSec / 60).toStringAsFixed(1)} min (native)',
           );
         }
       } catch (e) {

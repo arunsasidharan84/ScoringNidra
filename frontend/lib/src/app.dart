@@ -217,11 +217,19 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
       final autoCfg = await tryLoadAutoConfig(path);
 
       final LoadedEeg rawEeg;
-      if (kind == 'edf' || kind == 'nk' || kind == 'orbit') {
+      final lowerPath = path.toLowerCase();
+      if (kind == 'edf' ||
+          kind == 'nk' ||
+          kind == 'orbit' ||
+          kind == 'ebm' ||
+          lowerPath.endsWith('.eeg') ||
+          lowerPath.endsWith('.ebm') ||
+          lowerPath.endsWith('.orb') ||
+          lowerPath.endsWith('.signal')) {
         rawEeg = _backend.loadEdf(path);
       } else if (kind == 'edfvolt') {
         rawEeg = _backend.loadEdf(path, scaleVoltsToMicrovolts: true);
-      } else if (kind == 'r09') {
+      } else if (kind == 'r09' || lowerPath.endsWith('.r09')) {
         rawEeg = _backend.loadR09(path);
       } else {
         rawEeg = _backend.loadMat(path);
