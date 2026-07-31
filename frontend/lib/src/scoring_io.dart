@@ -77,8 +77,10 @@ Future<ScoringLoadResult?> tryLoadAutoScoring(
   ScoringLoadResult? primary;
   for (final path in paths) {
     try {
-      primary = await _loadJsonScoring(path, epochCount);
-      break;
+      primary = await loadScoringFile(path, epochCount: epochCount);
+      if (primary != null && primary.stages.any((s) => s.isScored)) {
+        break;
+      }
     } catch (_) {
       // Keep looking for another sidecar.
     }
@@ -91,9 +93,9 @@ Future<ScoringLoadResult?> tryLoadAutoScoring(
 
   for (final path in paths.skip(1)) {
     try {
-      final supplemental = await _loadJsonScoring(path, epochCount);
-      if (_hasStageProbabilities(supplemental) ||
-          _hasConfidence(supplemental)) {
+      final supplemental = await loadScoringFile(path, epochCount: epochCount);
+      if (supplemental != null &&
+          (_hasStageProbabilities(supplemental) || _hasConfidence(supplemental))) {
         return _mergeScoringMetadata(primary, supplemental);
       }
     } catch (_) {
@@ -125,10 +127,16 @@ List<String> _autoScoringCandidatePaths(String activePath) {
   add('$basePath.json');
 
   if (directory.existsSync()) {
+    final extraFiles = directory.listSync(followLinks: false).whereType<File>();
+    for (final fileEntry in extraFiles) {
+      final p = fileEntry.path.toLowerCase();
+      if (p.endsWith('.esrc') || p.endsWith('.esedb')) {
+        add(fileEntry.path);
+      }
+    }
+
     final modelSidecars =
-        directory
-            .listSync(followLinks: false)
-            .whereType<File>()
+        extraFiles
             .where((entry) => _isAutoscoreSidecarForStem(entry.path, stem))
             .toList()
           ..sort((a, b) {
@@ -496,9 +504,12 @@ Future<ScoringLoadResult?> importScoringDialog(
     case 'edf_anno':
       dialogTitle = 'Load EDF+ Annotations (.edf)';
       extensions = ['edf'];
+    case 'esrc':
+      dialogTitle = 'Load REMlogic / EMBLA scoring (.esrc, .esedb)';
+      extensions = ['esrc', 'esedb'];
     default:
       dialogTitle = 'Load scoring file';
-      extensions = ['json', 'txt', 'csv', 'vis', 'annot', 'edf'];
+      extensions = ['json', 'txt', 'csv', 'vis', 'annot', 'edf', 'esrc', 'esedb'];
   }
 
   final result = await FilePicker.pickFiles(
