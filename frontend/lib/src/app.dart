@@ -3721,11 +3721,15 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
         label: 'Data',
         menus: [
           PlatformMenuItem(
-            label: 'Load EDF / Nihon Kohden / Orbit recording (.edf, .eeg, .orb)…',
+            label: 'Load EEG Recording (.edf, .eeg, .orb, .mat, .r09)…',
             onSelected: () => _openRecording(kind: 'edf'),
           ),
           PlatformMenuItem(
-            label: 'Load Nihon Kohden recording (.eeg, .EEG)…',
+            label: 'Load EDF file (.edf)',
+            onSelected: () => _openRecording(kind: 'edf'),
+          ),
+          PlatformMenuItem(
+            label: 'Load Nihon Kohden recording (.eeg, .EEG)',
             onSelected: () => _openRecording(kind: 'nk'),
           ),
           PlatformMenuItem(
@@ -3980,11 +3984,15 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             menuChildren: [
               MenuItemButton(
                 onPressed: () => _openRecording(kind: 'edf'),
-                child: const Text('Load EDF / Nihon Kohden / Orbit recording (.edf, .eeg, .orb)…'),
+                child: const Text('Load EEG Recording (.edf, .eeg, .orb, .mat, .r09)…'),
+              ),
+              MenuItemButton(
+                onPressed: () => _openRecording(kind: 'edf'),
+                child: const Text('Load EDF file (.edf)'),
               ),
               MenuItemButton(
                 onPressed: () => _openRecording(kind: 'nk'),
-                child: const Text('Load Nihon Kohden recording (.eeg, .EEG)…'),
+                child: const Text('Load Nihon Kohden recording (.eeg, .EEG)'),
               ),
               MenuItemButton(
                 onPressed: () => _openRecording(kind: 'edfvolt'),

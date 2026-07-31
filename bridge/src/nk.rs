@@ -190,6 +190,9 @@ pub fn load_nihon_kohden_impl(eeg_path: &Path) -> Result<EdfFile, String> {
         return Err("No valid data blocks found in Nihon Kohden .EEG file".into());
     }
 
+    // Sort blocks by start address
+    blocks.sort_by_key(|b| b.address);
+
     // Determine channels
     let parent = eeg_path.parent().unwrap_or_else(|| Path::new("."));
     let stem = eeg_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
@@ -203,8 +206,8 @@ pub fn load_nihon_kohden_impl(eeg_path: &Path) -> Result<EdfFile, String> {
         std::collections::HashMap::new()
     };
 
-    // Default to first 32 channels (Standard PSG / EEG setup)
-    let num_channels = 32;
+    let max_custom_ch = custom_names.keys().max().copied().unwrap_or(0);
+    let num_channels = std::cmp::max(32, max_custom_ch + 1);
     let sample_rate = 200.0f32; // Default NK EEG sample rate
 
     let u_v_gain = 1e-6 * ((3199.902 + 3200.0) / 65535.0); // ~9.7656e-8
@@ -212,23 +215,45 @@ pub fn load_nihon_kohden_impl(eeg_path: &Path) -> Result<EdfFile, String> {
     // Pre-allocate channels
     let mut channel_samples: Vec<Vec<f32>> = (0..num_channels).map(|_| Vec::new()).collect();
 
-    // Read blocks payload
-    for block in &blocks {
-        file.seek(SeekFrom::Start(block.rec_address as u64)).map_err(|e| e.to_string())?;
-        let block_bytes_to_read = 200 * num_channels * 2; // 1 sec at 200Hz
-        let mut buf = vec![0u8; block_bytes_to_read];
-        let n_read = file.read(&mut buf).unwrap_or(0);
-        let n_vals = n_read / 2;
-        let samples_per_chan = n_vals / num_channels;
+    // Read full block payload across all data blocks
+    for i in 0..blocks.len() {
+        let rec_start = blocks[i].rec_address as usize;
+        let block_end = if i + 1 < blocks.len() {
+            blocks[i + 1].address as usize
+        } else {
+            file_len
+        };
 
-        for s in 0..samples_per_chan {
-            for ch in 0..num_channels {
-                let val_idx = s * num_channels + ch;
-                let b0 = buf[val_idx * 2];
-                let b1 = buf[val_idx * 2 + 1];
-                let raw_val = u16::from_le_bytes([b0, b1]) as f64;
-                let phys_microvolts = (raw_val - 32768.0) * u_v_gain * 1e6;
-                channel_samples[ch].push(phys_microvolts as f32);
+        if block_end <= rec_start { continue; }
+        let bytes_to_read = block_end - rec_start;
+
+        if file.seek(SeekFrom::Start(rec_start as u64)).is_err() { continue; }
+
+        let frame_bytes = num_channels * 2;
+        let chunk_size = 1024 * 1024 * 4; // 4MB chunks
+        let mut buf = vec![0u8; chunk_size];
+        let mut remaining = bytes_to_read;
+
+        while remaining >= frame_bytes {
+            let target_read = std::cmp::min(remaining, chunk_size);
+            let target_read = (target_read / frame_bytes) * frame_bytes;
+            if target_read == 0 { break; }
+
+            let n_read = file.read(&mut buf[..target_read]).unwrap_or(0);
+            if n_read < frame_bytes { break; }
+
+            remaining -= n_read;
+            let n_frames = n_read / frame_bytes;
+
+            for f in 0..n_frames {
+                for ch in 0..num_channels {
+                    let val_idx = f * num_channels + ch;
+                    let b0 = buf[val_idx * 2];
+                    let b1 = buf[val_idx * 2 + 1];
+                    let raw_val = u16::from_le_bytes([b0, b1]) as f64;
+                    let phys_microvolts = (raw_val - 32768.0) * u_v_gain * 1e6;
+                    channel_samples[ch].push(phys_microvolts as f32);
+                }
             }
         }
     }
@@ -237,7 +262,7 @@ pub fn load_nihon_kohden_impl(eeg_path: &Path) -> Result<EdfFile, String> {
     for ch in 0..num_channels {
         let label_str = custom_names.get(&ch).cloned().unwrap_or_else(|| get_nk_channel_name(ch));
         let label_c = CString::new(label_str).unwrap_or_else(|_| CString::new("").unwrap());
-        let mut samps = std::mem::take(&mut channel_samples[ch]);
+        let samps = std::mem::take(&mut channel_samples[ch]);
         let count = samps.len() as i32;
 
         signals.push(EdfSignal {
