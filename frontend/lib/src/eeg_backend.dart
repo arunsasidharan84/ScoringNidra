@@ -908,6 +908,9 @@ class EegBackend {
         _loadNk = library.lookupFunction<_LoadEdfNative, _LoadEdfDart>(
           'sleep_eeg_load_nihon_kohden',
         );
+        _loadEmbla = library.lookupFunction<_LoadEdfNative, _LoadEdfDart>(
+          'sleep_eeg_load_embla',
+        );
         _freeEdf = library.lookupFunction<_FreeEdfNative, _FreeEdfDart>(
           'sleep_eeg_free_edf',
         );
@@ -941,6 +944,7 @@ class EegBackend {
   _FreeMorletDart? _freeMorlet;
   _LoadEdfDart? _loadEdf;
   _LoadEdfDart? _loadNk;
+  _LoadEdfDart? _loadEmbla;
   _FreeEdfDart? _freeEdf;
   _ComputeSpectrogramDart? _computeSpectrogramNative;
   _FreeSpectrogramDart? _freeSpectrogramNative;
@@ -980,7 +984,10 @@ class EegBackend {
       return OrbitLoader().load(path);
     }
     final isNk = lower.endsWith('.eeg');
-    final loader = isNk ? (_loadNk ?? _loadEdf) : _loadEdf;
+    final isEmbla = lower.endsWith('.ebm');
+    final loader = isEmbla
+        ? (_loadEmbla ?? _loadEdf)
+        : (isNk ? (_loadNk ?? _loadEdf) : _loadEdf);
     if (loader != null && _freeEdf != null) {
       final pathPtr = path.toNativeUtf8();
       try {

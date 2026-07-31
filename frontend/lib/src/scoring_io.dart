@@ -586,6 +586,18 @@ Future<ScoringFormatDetection> detectScoringFormat(String path) async {
       displayName: 'EDF+ annotations',
     );
   }
+  if (lower.endsWith('.esrc')) {
+    return const ScoringFormatDetection(
+      parserType: 'esrc',
+      displayName: 'REMlogic / EMBLA ESRC XML',
+    );
+  }
+  if (lower.endsWith('.esedb')) {
+    return const ScoringFormatDetection(
+      parserType: 'esrc',
+      displayName: 'REMlogic / EMBLA ESEDB',
+    );
+  }
   if (lower.endsWith('.vis')) {
     return const ScoringFormatDetection(
       parserType: 'vis',
@@ -699,6 +711,9 @@ Future<ScoringLoadResult> _parseScoringFile(
       return ScoringLoadResult(stages, List.filled(stages.length, false));
     case 'gssc':
       final stages = await _loadGsscScoring(path, epochCount);
+      return ScoringLoadResult(stages, List.filled(stages.length, false));
+    case 'esrc':
+      final stages = await _loadEmblaEsrcScoring(path, epochCount);
       return ScoringLoadResult(stages, List.filled(stages.length, false));
     default:
       throw UnsupportedError('Unknown scoring format: $filetype');
@@ -1137,6 +1152,72 @@ Future<List<SleepStage>> _loadGsscScoring(String path, int epochCount) async {
       stages[i] = lastScored;
     }
   }
+  return stages;
+}
+
+Future<List<SleepStage>> _loadEmblaEsrcScoring(
+  String path,
+  int epochCount,
+) async {
+  final bytes = await File(path).readAsBytes();
+  String text;
+  try {
+    text = utf8.decode(bytes);
+  } catch (_) {
+    text = String.fromCharCodes(bytes);
+  }
+
+  final parsedStages = <({int startSec, SleepStage stage})>[];
+
+  final stageMatches = RegExp(
+    r'<Stage[^>]*Type="([^"]+)"[^>]*Start="([^"]+)"',
+    caseSensitive: false,
+  ).allMatches(text);
+
+  for (final m in stageMatches) {
+    final typeStr = m.group(1) ?? '';
+    final startStr = m.group(2) ?? '0';
+    final startSec = (double.tryParse(startStr) ?? 0.0).toInt();
+    final stage = _stageFromYasaLabel(typeStr);
+    parsedStages.add((startSec: startSec, stage: stage));
+  }
+
+  if (parsedStages.isEmpty) {
+    final sleepTagMatches = RegExp(
+      r'SLEEP-(S0|S1|S2|S3|S4|REM|WAK|WAKE)',
+      caseSensitive: false,
+    ).allMatches(text);
+    var curSec = 0;
+    for (final m in sleepTagMatches) {
+      final tag = m.group(0) ?? '';
+      final stage = _stageFromYasaLabel(tag.replaceAll('SLEEP-', ''));
+      parsedStages.add((startSec: curSec, stage: stage));
+      curSec += 30;
+    }
+  }
+
+  if (epochCount <= 0) {
+    if (parsedStages.isNotEmpty) {
+      final maxStart = parsedStages.map((e) => e.startSec).fold(0, math.max);
+      epochCount = math.max(1, (maxStart / 30).ceil() + 1);
+    } else {
+      epochCount = 1;
+    }
+  }
+
+  final stages = List.filled(epochCount, SleepStage.unknown);
+  for (var i = 0; i < parsedStages.length; i++) {
+    final cur = parsedStages[i];
+    final epStart = cur.startSec ~/ 30;
+    final epEnd = i + 1 < parsedStages.length
+        ? (parsedStages[i + 1].startSec ~/ 30)
+        : epochCount;
+
+    for (var ep = epStart; ep < epEnd && ep < epochCount; ep++) {
+      if (ep >= 0) stages[ep] = cur.stage;
+    }
+  }
+
   return stages;
 }
 

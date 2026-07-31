@@ -184,7 +184,9 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                       ? 'Load Nihon Kohden recording (.eeg, .EEG)'
                       : (kind == 'orbit'
                             ? 'Load Orbit file (.orb, .signal)'
-                            : 'Load EEG recording (.edf, .eeg, .EEG, .orb, .signal)'))),
+                            : (kind == 'ebm'
+                                  ? 'Load EMBLA / REMlogic recording (.ebm)'
+                                  : 'Load EEG recording (.edf, .eeg, .orb, .mat, .r09, .ebm)')))),
       type: FileType.custom,
       allowedExtensions: kind == 'mat'
           ? ['mat']
@@ -194,7 +196,9 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                       ? ['eeg', 'EEG']
                       : (kind == 'orbit'
                             ? ['orb', 'signal']
-                            : ['edf', 'EDF', 'eeg', 'EEG', 'orb', 'signal']))),
+                            : (kind == 'ebm'
+                                  ? ['ebm', 'EBM']
+                                  : ['edf', 'EDF', 'eeg', 'EEG', 'orb', 'signal', 'mat', 'r09', 'ebm', 'EBM'])))),
     );
     final path = result?.files.single.path;
     if (path == null) {
@@ -3721,7 +3725,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
         label: 'Data',
         menus: [
           PlatformMenuItem(
-            label: 'Load EEG Recording (.edf, .eeg, .orb, .mat, .r09)…',
+            label: 'Load EEG Recording (.edf, .eeg, .orb, .mat, .r09, .ebm)…',
             onSelected: () => _openRecording(kind: 'edf'),
           ),
           PlatformMenuItem(
@@ -3731,6 +3735,10 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
           PlatformMenuItem(
             label: 'Load Nihon Kohden recording (.eeg, .EEG)',
             onSelected: () => _openRecording(kind: 'nk'),
+          ),
+          PlatformMenuItem(
+            label: 'Load EMBLA / REMlogic recording (.ebm)',
+            onSelected: () => _openRecording(kind: 'ebm'),
           ),
           PlatformMenuItem(
             label: 'Load EDF file (.edf) – scaled from V to µV',
@@ -3984,7 +3992,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             menuChildren: [
               MenuItemButton(
                 onPressed: () => _openRecording(kind: 'edf'),
-                child: const Text('Load EEG Recording (.edf, .eeg, .orb, .mat, .r09)…'),
+                child: const Text('Load EEG Recording (.edf, .eeg, .orb, .mat, .r09, .ebm)…'),
               ),
               MenuItemButton(
                 onPressed: () => _openRecording(kind: 'edf'),
@@ -3993,6 +4001,10 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
               MenuItemButton(
                 onPressed: () => _openRecording(kind: 'nk'),
                 child: const Text('Load Nihon Kohden recording (.eeg, .EEG)'),
+              ),
+              MenuItemButton(
+                onPressed: () => _openRecording(kind: 'ebm'),
+                child: const Text('Load EMBLA / REMlogic recording (.ebm)'),
               ),
               MenuItemButton(
                 onPressed: () => _openRecording(kind: 'edfvolt'),

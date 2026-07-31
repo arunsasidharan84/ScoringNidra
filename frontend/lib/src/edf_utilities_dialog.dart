@@ -85,8 +85,8 @@ class _EegUtilitiesDialogState extends State<EegUtilitiesDialog>
   Future<void> _pickSingleInput() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['edf', 'EDF', 'eeg', 'EEG', 'orb', 'signal'],
-      dialogTitle: 'Select Input EEG File (.edf, .eeg, .orb)',
+      allowedExtensions: ['edf', 'EDF', 'eeg', 'EEG', 'orb', 'signal', 'ebm', 'EBM'],
+      dialogTitle: 'Select Input EEG File (.edf, .eeg, .orb, .ebm)',
     );
     if (result != null && result.files.single.path != null) {
       setState(() {

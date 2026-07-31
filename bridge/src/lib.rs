@@ -7,6 +7,7 @@ use std::ptr;
 mod morlet;
 pub mod edf;
 pub mod nk;
+pub mod embla;
 pub mod spectrogram;
 
 #[repr(C)]

@@ -10,7 +10,7 @@
   <b>National Institute of Mental Health and Neurosciences (NIMHANS)</b>, Bangalore, India.
 </p>
 
-**Version:** 1.4.2
+**Version:** 1.5.0
 
 Welcome to **CCS Sleep Studio**, a high-performance, cross-platform desktop application designed to assist researchers and clinicians in sleep EEG visualization, event annotation, sleep scoring, automated staging, and advanced EEG analysis.
 
@@ -217,9 +217,10 @@ We have enriched the UI with several flexibility and control improvements:
 *   Double-click on an existing event to remove it.
 *   **Erase events in selection**: Draw selection boxes and press `Backspace` to delete all events inside the drawn region.
 
-### File Formats & EDF Utilities
-*   **Nihon Kohden (.EEG) Native Reader**: Built-in Rust binary parser for Nihon Kohden `.EEG`, `.PNT` metadata, and `.21E` channel mapping files, with physical voltage calibration and EDF export.
-*   **EDF Utilities Module**: Perform signal downsampling, time cropping, channel renaming, channel filtering, and patient header anonymization (Patient ID, Name, Sex, DOB) for single files or in batch.
+### File Formats & EEG Utilities
+*   **EMBLA / REMlogic (.ebm & .esrc / .esedb) Reader**: Native Rust reader for EMBLA single-channel binary files (`.ebm`) and REMlogic sleep stage scoring XML files (`.esrc`, `.esedb`), with physical unit calibration scaling and full directory assembly.
+*   **Nihon Kohden (.EEG) Native Reader**: Built-in Rust binary parser for Nihon Kohden `.EEG`, `.PNT` metadata, and `.21E` channel mapping files, with physical voltage calibration and full recording payload assembly.
+*   **EEG Utilities Module**: Perform signal downsampling, time cropping, channel renaming, channel filtering, and patient header anonymization (Patient ID, Name, Sex, DOB) for single files or in batch across EDF, Nihon Kohden, Orbit, and EMBLA recordings.
 *   **Orbit (.orb / .signal) File Loader**: Native binary and JSON-lines parser for Orbit recordings, complete with gap-filling, linear interpolation, and automatic calibration scaling.
 *   **EDF+ Annotations Reader**: Parses TAL structures directly from annotations channels.
 *   **Polyman CSV Interval Loader**: Imports sleep events and labels from Polyman text logs.
