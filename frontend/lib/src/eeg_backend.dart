@@ -905,16 +905,30 @@ class EegBackend {
         _loadEdf = library.lookupFunction<_LoadEdfNative, _LoadEdfDart>(
           'sleep_eeg_load_edf',
         );
+      } catch (e) {
+        debugPrint('[EegBackend] sleep_eeg_load_edf lookup error: $e');
+      }
+      try {
         _loadNk = library.lookupFunction<_LoadEdfNative, _LoadEdfDart>(
           'sleep_eeg_load_nihon_kohden',
         );
+      } catch (e) {
+        debugPrint('[EegBackend] sleep_eeg_load_nihon_kohden lookup error: $e');
+      }
+      try {
         _loadEmbla = library.lookupFunction<_LoadEdfNative, _LoadEdfDart>(
           'sleep_eeg_load_embla',
         );
+      } catch (e) {
+        debugPrint('[EegBackend] sleep_eeg_load_embla lookup error: $e');
+      }
+      try {
         _freeEdf = library.lookupFunction<_FreeEdfNative, _FreeEdfDart>(
           'sleep_eeg_free_edf',
         );
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[EegBackend] sleep_eeg_free_edf lookup error: $e');
+      }
       try {
         _computeSpectrogramNative = library
             .lookupFunction<_ComputeSpectrogramNative, _ComputeSpectrogramDart>(
