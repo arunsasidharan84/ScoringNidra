@@ -6,10 +6,10 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart';
 
 import 'edf_loader.dart';
 import 'mat_loader.dart';
@@ -905,6 +905,9 @@ class EegBackend {
         _loadEdf = library.lookupFunction<_LoadEdfNative, _LoadEdfDart>(
           'sleep_eeg_load_edf',
         );
+        _loadNk = library.lookupFunction<_LoadEdfNative, _LoadEdfDart>(
+          'sleep_eeg_load_nihon_kohden',
+        );
         _freeEdf = library.lookupFunction<_FreeEdfNative, _FreeEdfDart>(
           'sleep_eeg_free_edf',
         );
@@ -937,6 +940,7 @@ class EegBackend {
   _ComputeMorletDart? _computeMorlet;
   _FreeMorletDart? _freeMorlet;
   _LoadEdfDart? _loadEdf;
+  _LoadEdfDart? _loadNk;
   _FreeEdfDart? _freeEdf;
   _ComputeSpectrogramDart? _computeSpectrogramNative;
   _FreeSpectrogramDart? _freeSpectrogramNative;
@@ -975,10 +979,12 @@ class EegBackend {
     if (lower.endsWith('.orb') || lower.endsWith('.signal')) {
       return OrbitLoader().load(path);
     }
-    if (_loadEdf != null && _freeEdf != null) {
+    final isNk = lower.endsWith('.eeg');
+    final loader = isNk ? (_loadNk ?? _loadEdf) : _loadEdf;
+    if (loader != null && _freeEdf != null) {
       final pathPtr = path.toNativeUtf8();
       try {
-        final edfPtr = _loadEdf!(pathPtr, scaleVoltsToMicrovolts);
+        final edfPtr = loader(pathPtr, scaleVoltsToMicrovolts);
         if (edfPtr != nullptr) {
           final edf = edfPtr.ref;
           final channelLabels = <String>[];
@@ -1008,11 +1014,11 @@ class EegBackend {
             channelSamples: channelSamples,
             recordingStartTime: recordingStartTime,
             sourceDescription:
-                '${channelLabels.length} channels, ${sampleRate.toStringAsFixed(1)} Hz, ${(durationSec / 60).toStringAsFixed(1)} min (native)',
+                '${channelLabels.length} channels, ${sampleRate.toStringAsFixed(1)} Hz, ${(durationSec / 60).toStringAsFixed(1)} min (${isNk ? 'Nihon Kohden' : 'native'})',
           );
         }
-      } catch (_) {
-        // Fallback to Dart
+      } catch (e) {
+        debugPrint('Failed native load for $path: $e');
       } finally {
         calloc.free(pathPtr);
       }

@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+
+import 'eeg_backend.dart';
+import 'models.dart';
 
 /// Class containing parameters for EDF modification
 class EdfTransformOptions {
@@ -24,8 +28,8 @@ class EdfTransformOptions {
   List<String> selectedChannels = [];
 }
 
-class EdfUtilitiesDialog extends StatefulWidget {
-  const EdfUtilitiesDialog({
+class EegUtilitiesDialog extends StatefulWidget {
+  const EegUtilitiesDialog({
     super.key,
     this.initialEdfPath,
     this.availableChannels = const [],
@@ -35,10 +39,12 @@ class EdfUtilitiesDialog extends StatefulWidget {
   final List<String> availableChannels;
 
   @override
-  State<EdfUtilitiesDialog> createState() => _EdfUtilitiesDialogState();
+  State<EegUtilitiesDialog> createState() => _EegUtilitiesDialogState();
 }
 
-class _EdfUtilitiesDialogState extends State<EdfUtilitiesDialog>
+typedef EdfUtilitiesDialog = EegUtilitiesDialog;
+
+class _EegUtilitiesDialogState extends State<EegUtilitiesDialog>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
@@ -79,8 +85,8 @@ class _EdfUtilitiesDialogState extends State<EdfUtilitiesDialog>
   Future<void> _pickSingleInput() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['edf', 'EDF'],
-      dialogTitle: 'Select Input EDF File',
+      allowedExtensions: ['edf', 'EDF', 'eeg', 'EEG', 'orb', 'signal'],
+      dialogTitle: 'Select Input EEG File (.edf, .eeg, .orb)',
     );
     if (result != null && result.files.single.path != null) {
       setState(() {
@@ -93,7 +99,7 @@ class _EdfUtilitiesDialogState extends State<EdfUtilitiesDialog>
     final result = await FilePicker.saveFile(
       dialogTitle: 'Save Transformed EDF File',
       fileName: _inputFilePath != null
-          ? '${File(_inputFilePath!).uri.pathSegments.last.replaceAll('.edf', '').replaceAll('.EDF', '')}_modified.edf'
+          ? '${File(_inputFilePath!).uri.pathSegments.last.replaceAll(RegExp(r'\.[^.]+$'), '')}_modified.edf'
           : 'output.edf',
       type: FileType.custom,
       allowedExtensions: ['edf'],
@@ -107,7 +113,7 @@ class _EdfUtilitiesDialogState extends State<EdfUtilitiesDialog>
 
   Future<void> _pickBatchInputDir() async {
     final path = await FilePicker.getDirectoryPath(
-      dialogTitle: 'Select Input Directory containing EDF files',
+      dialogTitle: 'Select Input Directory containing EEG files (.edf, .eeg, .orb)',
     );
     if (path != null) {
       setState(() {
@@ -172,25 +178,28 @@ class _EdfUtilitiesDialogState extends State<EdfUtilitiesDialog>
     final files = dir
         .listSync()
         .whereType<File>()
-        .where((f) => f.path.toLowerCase().endsWith('.edf'))
+        .where((f) {
+          final l = f.path.toLowerCase();
+          return l.endsWith('.edf') || l.endsWith('.eeg') || l.endsWith('.orb') || l.endsWith('.signal');
+        })
         .toList();
 
     if (files.isEmpty) {
-      _showToast('No EDF files found in the selected input directory.');
+      _showToast('No supported EEG files (.edf, .eeg, .orb) found in the selected input directory.');
       return;
     }
 
     setState(() {
       _isProcessing = true;
       _progress = 0.0;
-      _statusText = 'Starting batch processing of ${files.length} EDF files…';
+      _statusText = 'Starting batch processing of ${files.length} EEG files…';
     });
 
     int count = 0;
     int success = 0;
     for (final file in files) {
-      final baseName = file.uri.pathSegments.last;
-      final outPath = '${_batchOutputDir!}/$baseName';
+      final baseName = file.uri.pathSegments.last.replaceAll(RegExp(r'\.[^.]+$'), '');
+      final outPath = '${_batchOutputDir!}/${baseName}_modified.edf';
       setState(() {
         _statusText = 'Processing file ${count + 1}/${files.length}: $baseName';
         _progress = (count + 1) / files.length;
@@ -234,7 +243,7 @@ class _EdfUtilitiesDialogState extends State<EdfUtilitiesDialog>
                 const Icon(Icons.build_circle_outlined, color: Colors.blue, size: 28),
                 const SizedBox(width: 10),
                 const Text(
-                  'EDF Utilities — Reduce, Anonymize & Modify Header',
+                  'EEG Utilities Module — Reduce, Anonymize & Convert to EDF',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const Spacer(),
@@ -251,7 +260,7 @@ class _EdfUtilitiesDialogState extends State<EdfUtilitiesDialog>
               unselectedLabelColor: Colors.grey,
               tabs: const [
                 Tab(text: 'Single File Utility'),
-                Tab(text: 'Batch EDF Processor'),
+                Tab(text: 'Batch EEG Processor'),
               ],
             ),
             const SizedBox(height: 12),
@@ -558,7 +567,14 @@ Future<void> processEdfFile(
   EdfTransformOptions options,
 ) async {
   final file = File(inputPath);
-  if (!await file.exists()) throw Exception('Input EDF file does not exist.');
+  if (!await file.exists()) throw Exception('Input file does not exist.');
+
+  final lower = inputPath.toLowerCase();
+  if (!lower.endsWith('.edf')) {
+    final loaded = EegBackend().loadEdf(inputPath);
+    await _writeLoadedEegToEdf(loaded, outputPath, options);
+    return;
+  }
 
   final bytes = await file.readAsBytes();
   if (bytes.length < 256) throw Exception('File too small to be a valid EDF header.');
@@ -691,6 +707,114 @@ Future<void> processEdfFile(
       recOffset += sigLen;
     }
     dataPos += totalBytesPerRec;
+  }
+
+  final outFile = File(outputPath);
+  await outFile.writeAsBytes(outBytes);
+}
+
+Future<void> _writeLoadedEegToEdf(
+  LoadedEeg loaded,
+  String outputPath,
+  EdfTransformOptions options,
+) async {
+  final keptIndices = <int>[];
+  for (int i = 0; i < loaded.channelLabels.length; i++) {
+    final label = loaded.channelLabels[i];
+    if (options.selectedChannels.isEmpty || options.selectedChannels.contains(label)) {
+      keptIndices.add(i);
+    }
+  }
+  if (keptIndices.isEmpty) {
+    for (int i = 0; i < loaded.channelLabels.length; i++) keptIndices.add(i);
+  }
+
+  int startSample = 0;
+  int endSample = loaded.sampleCount;
+  if (options.cropTime && options.endTimeSec > options.startTimeSec) {
+    startSample = (options.startTimeSec * loaded.sampleRateHz).round().clamp(0, loaded.sampleCount);
+    endSample = (options.endTimeSec * loaded.sampleRateHz).round().clamp(startSample, loaded.sampleCount);
+  }
+
+  double finalSampleRate = loaded.sampleRateHz;
+  int sampleStep = 1;
+  if (options.downsample && options.targetSampleRateHz > 0 && options.targetSampleRateHz < loaded.sampleRateHz) {
+    sampleStep = (loaded.sampleRateHz / options.targetSampleRateHz).round().clamp(1, 100);
+    finalSampleRate = loaded.sampleRateHz / sampleStep;
+  }
+
+  final recordSamples = math.max(1, finalSampleRate.round());
+  final totalDurationSec = ((endSample - startSample) / loaded.sampleRateHz).floor();
+  final numRecords = math.max(1, totalDurationSec);
+
+  final newNumSignals = keptIndices.length;
+  final newHeaderLen = 256 + newNumSignals * 256;
+
+  String patientId = options.anonymizeHeader ? options.patientId : 'ANONYMOUS';
+  String patientName = options.anonymizeHeader ? options.patientName : 'Anonymous';
+
+  StringBuffer newHdr = StringBuffer();
+  newHdr.write('0'.padRight(8));
+  newHdr.write(patientId.padRight(80));
+  newHdr.write(patientName.padRight(80));
+  newHdr.write('01.01.00'); // Start date
+  newHdr.write('00.00.00'); // Start time
+  newHdr.write(newHeaderLen.toString().padRight(8));
+  newHdr.write('EDF+C'.padRight(44));
+  newHdr.write(numRecords.toString().padRight(8));
+  newHdr.write('1.0'.padRight(8)); // 1 sec per record
+  newHdr.write(newNumSignals.toString().padRight(4));
+
+  List<int> outBytes = [];
+  outBytes.addAll(newHdr.toString().codeUnits);
+
+  // Labels
+  for (final idx in keptIndices) {
+    String name = loaded.channelLabels[idx];
+    if (options.channelNameMap.containsKey(name) && options.channelNameMap[name]!.isNotEmpty) {
+      name = options.channelNameMap[name]!;
+    }
+    outBytes.addAll(name.padRight(16).codeUnits.sublist(0, 16));
+  }
+  // Transducers
+  for (int i = 0; i < newNumSignals; i++) outBytes.addAll(''.padRight(80).codeUnits);
+  // Dimensions
+  for (int i = 0; i < newNumSignals; i++) outBytes.addAll('uV'.padRight(8).codeUnits);
+  // Phys min
+  for (int i = 0; i < newNumSignals; i++) outBytes.addAll('-3000.00'.padRight(8).codeUnits);
+  // Phys max
+  for (int i = 0; i < newNumSignals; i++) outBytes.addAll('3000.00'.padRight(8).codeUnits);
+  // Dig min
+  for (int i = 0; i < newNumSignals; i++) outBytes.addAll('-32768'.padRight(8).codeUnits);
+  // Dig max
+  for (int i = 0; i < newNumSignals; i++) outBytes.addAll('32767'.padRight(8).codeUnits);
+  // Prefilter
+  for (int i = 0; i < newNumSignals; i++) outBytes.addAll(''.padRight(80).codeUnits);
+  // Samples per record
+  for (int i = 0; i < newNumSignals; i++) outBytes.addAll(recordSamples.toString().padRight(8).codeUnits);
+  // Reserved
+  for (int i = 0; i < newNumSignals; i++) outBytes.addAll(''.padRight(32).codeUnits);
+
+  const physMin = -3000.0;
+  const physMax = 3000.0;
+  const digMin = -32768;
+  const digMax = 32767;
+  const scale = (digMax - digMin) / (physMax - physMin);
+
+  for (int r = 0; r < numRecords; r++) {
+    final recordStartSec = r * 1.0;
+    final rStartSample = startSample + (recordStartSec * loaded.sampleRateHz).round();
+
+    for (final chIdx in keptIndices) {
+      final samples = loaded.channelSamples[chIdx];
+      for (int s = 0; s < recordSamples; s++) {
+        final srcIdx = rStartSample + (s * sampleStep);
+        final val = (srcIdx >= 0 && srcIdx < samples.length) ? samples[srcIdx] : 0.0;
+        final int16Val = ((val - physMin) * scale + digMin).round().clamp(-32768, 32767);
+        outBytes.add(int16Val & 0xFF);
+        outBytes.add((int16Val >> 8) & 0xFF);
+      }
+    }
   }
 
   final outFile = File(outputPath);

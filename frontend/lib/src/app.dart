@@ -180,17 +180,21 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
           ? 'Load EEGLAB structure (.mat)'
           : (kind == 'r09'
                 ? 'Load Zurich file (.r09)'
-                : (kind == 'orbit'
-                      ? 'Load Orbit file (.orb, .signal)'
-                      : 'Load EDF/Orbit file (.edf, .eeg, .EEG, .orb, .signal)')),
+                : (kind == 'nk'
+                      ? 'Load Nihon Kohden recording (.eeg, .EEG)'
+                      : (kind == 'orbit'
+                            ? 'Load Orbit file (.orb, .signal)'
+                            : 'Load EEG recording (.edf, .eeg, .EEG, .orb, .signal)'))),
       type: FileType.custom,
       allowedExtensions: kind == 'mat'
           ? ['mat']
           : (kind == 'r09'
                 ? ['r09']
-                : (kind == 'orbit'
-                      ? ['orb', 'signal']
-                      : ['edf', 'orb', 'signal'])),
+                : (kind == 'nk'
+                      ? ['eeg', 'EEG']
+                      : (kind == 'orbit'
+                            ? ['orb', 'signal']
+                            : ['edf', 'EDF', 'eeg', 'EEG', 'orb', 'signal']))),
     );
     final path = result?.files.single.path;
     if (path == null) {
@@ -209,7 +213,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
       final autoCfg = await tryLoadAutoConfig(path);
 
       final LoadedEeg rawEeg;
-      if (kind == 'edf' || kind == 'orbit') {
+      if (kind == 'edf' || kind == 'nk' || kind == 'orbit') {
         rawEeg = _backend.loadEdf(path);
       } else if (kind == 'edfvolt') {
         rawEeg = _backend.loadEdf(path, scaleVoltsToMicrovolts: true);
@@ -3697,8 +3701,12 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
         label: 'Data',
         menus: [
           PlatformMenuItem(
-            label: 'Load EDF file (.edf)',
+            label: 'Load EDF / Nihon Kohden / Orbit recording (.edf, .eeg, .orb)…',
             onSelected: () => _openRecording(kind: 'edf'),
+          ),
+          PlatformMenuItem(
+            label: 'Load Nihon Kohden recording (.eeg, .EEG)…',
+            onSelected: () => _openRecording(kind: 'nk'),
           ),
           PlatformMenuItem(
             label: 'Load EDF file (.edf) – scaled from V to µV',
@@ -3832,7 +3840,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             onSelected: _zoomOnSelectedEeg,
           ),
           PlatformMenuItem(
-            label: 'EDF Utilities (Reduce, Crop, Rename, Anonymize)…',
+            label: 'EEG Utilities Module (Reduce, Crop, Rename, Anonymize & Batch)…',
             onSelected: _openEdfUtilitiesDialog,
           ),
           PlatformMenuItem(
@@ -3952,7 +3960,11 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             menuChildren: [
               MenuItemButton(
                 onPressed: () => _openRecording(kind: 'edf'),
-                child: const Text('Load EDF file (.edf)'),
+                child: const Text('Load EDF / Nihon Kohden / Orbit recording (.edf, .eeg, .orb)…'),
+              ),
+              MenuItemButton(
+                onPressed: () => _openRecording(kind: 'nk'),
+                child: const Text('Load Nihon Kohden recording (.eeg, .EEG)…'),
               ),
               MenuItemButton(
                 onPressed: () => _openRecording(kind: 'edfvolt'),
@@ -4099,6 +4111,10 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
               MenuItemButton(
                 onPressed: _zoomOnSelectedEeg,
                 child: const Text('Zoom on selected EEG [Z]'),
+              ),
+              MenuItemButton(
+                onPressed: _openEdfUtilitiesDialog,
+                child: const Text('EEG Utilities Module (Crop, Downsample, Rename, Anonymize & Batch)…'),
               ),
               MenuItemButton(
                 onPressed: _exportSleepReport,

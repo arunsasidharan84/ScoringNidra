@@ -159,6 +159,8 @@ class LoadedEeg {
   final List<List<double>> channelSamples;
   final String sourceDescription;
 
+  int get sampleCount => channelSamples.isEmpty ? 0 : channelSamples.first.length;
+
   // ─── Night-level spectrogram (epochs × freqs) ───────────────────────────
   final List<List<double>>
   spectrogramPower; // log10 power displayed in spectrogram
