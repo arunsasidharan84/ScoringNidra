@@ -10,14 +10,19 @@
   <b>National Institute of Mental Health and Neurosciences (NIMHANS)</b>, Bangalore, India.
 </p>
 
-**Version:** 1.5.3
+**Version:** 1.6.0
 
 Welcome to **CCS Sleep Studio**, a high-performance, cross-platform desktop application designed to assist researchers and clinicians in sleep EEG visualization, event annotation, sleep scoring, automated staging, and advanced EEG analysis.
 
 CCS Sleep Studio is comprised of the following key modules:
-*   **ScoringNidra**: Interactive sleep scoring and event annotation module within the app.
+*   **ScoringNidra**: Interactive sleep scoring and event annotation module supporting EDF, Nihon Kohden (.EEG), EMBLA (.ebm), Orbit (.orb), and R09 (.r09).
 *   **AutoscoreNidra**: Automated sleep scoring module with both interactive and batch modes.
 *   **AnalyseNidra**: Automated sleep EEG analysis and reporting module operating in both interactive and batch modes.
+
+### 🌟 New in Version 1.6.0
+*   **Nihon Kohden (.EEG) Support**: Native reading of multi-block Nihon Kohden recordings, active channel filtering (<70 channels), and complete extraction of multi-hour (>6h to 36h+) continuous PSG payload data.
+*   **EMBLA (.ebm) Folder & File Loading**: Automatic multi-rate channel resampling (e.g. 10 Hz respiratory channels upsampled to match 200 Hz EEG) preserving full 7+ hour recording duration across 35+ channels.
+*   **REMlogic & EMBLA Stage Scoring**: Direct native parsing of `.esedb` (OLE event store) and `.esrc` scoring files into 30-second epoch hypnograms and event annotations.
 
 Built from the ground up using **Flutter** for a lightweight, fluid UI, and **Rust** for native-speed signal processing, **CCS Sleep Studio** is inspired heavily from the Python-based [ScoringHero](https://github.com/SvennoNito/ScoringHero) repository. It operates without any complex Python or MATLAB runtime setup, bringing near-instant response times to massive sleep EEG files and advanced analysis.
 
@@ -300,6 +305,12 @@ iscc windows/installer.iss
 ---
 
 ## 📜 Release Log & Changelog
+
+### Version 1.6.0
+*   **Nihon Kohden (.EEG) Version 1 & Version 2 (`EEG-1200A`) Dual Parser**: Added native Rust parsing for both standard Version 1 and Version 2 (`EEG-1200A` 3-tier extended block pointer chain) Nihon Kohden recordings. Corrected frame byte stride ($N+1$ channels), data start offsets, and physical voltage scaling ($0.09765625\ \mu\text{V}$), achieving **0.000000 µV exact match** against reference EDF files across 41+ channels and multi-hour datasets (up to 33M+ samples / 9.31+ hours).
+*   **EMBLA (.ebm) Signal Scaling & Calibration**: Fixed EMBLA physical microvolt scaling factors (`1000.0 / 65536.0` µV/count and Volts-to-microvolts conversion) and multi-channel directory loading.
+*   **REMlogic & EMBLA Stage Scoring**: Native parsing of `.esedb` (OLE event store) and `.esrc` scoring files into 30-second epoch hypnograms and event annotations.
+*   **FFI Symbol Lookup Resilience**: Isolated native FFI function bindings in Dart `EegBackend` so `.EEG`, `.ebm`, and `.edf` loaders operate independently without failing if any single symbol fails to bind.
 
 ### Version 1.3.0
 *   **Branding & Name Consistency**: Application name unified as **CCS Sleep Studio** across code, UI labels, documentation, and Debian/RPM packaging scripts.

@@ -8,6 +8,7 @@ mod morlet;
 pub mod edf;
 pub mod nk;
 pub mod embla;
+pub mod esedb;
 pub mod spectrogram;
 
 #[repr(C)]
@@ -295,6 +296,77 @@ mod tests {
             );
             assert_eq!(points[0].channel, 0);
             assert_eq!(points[1800].channel, 1);
+        }
+    }
+
+    #[test]
+    fn test_nk_loader() {
+        let path1 = Path::new("/Users/arunsasidharan/EEGdata/Sleep/SamplePSGData/FA7311PC.EEG");
+        if path1.exists() {
+            let res = nk::load_nihon_kohden_impl(path1);
+            println!("NK FA7311PC Load Result: {:?}", res.is_ok());
+            if let Ok(ref edf) = res {
+                println!("NK FA7311PC Signal count: {}, duration: {} s ({:.2} hours)", edf.signal_count, edf.duration_seconds, edf.duration_seconds / 3600.0);
+                assert_eq!(edf.signal_count, 37, "Signal count should be 37");
+                assert!(edf.duration_seconds > 21600.0, "Duration should be > 6 hours");
+            }
+            assert!(res.is_ok());
+        }
+
+        let path2 = Path::new("/Users/arunsasidharan/EEGdata/Sleep/SamplePSGData/CNT_YNG_NN_Nap-180_A_FA7312KW.EEG");
+        if path2.exists() {
+            let res = nk::load_nihon_kohden_impl(path2);
+            println!("NK FA7312KW Load Result: {:?}", res.is_ok());
+            if let Ok(ref edf) = res {
+                println!("NK FA7312KW Signal count: {}, duration: {} s ({:.2} minutes)", edf.signal_count, edf.duration_seconds, edf.duration_seconds / 60.0);
+                assert_eq!(edf.signal_count, 34, "Signal count should be 34");
+                assert!(edf.duration_seconds > 1800.0, "Duration should be > 30 minutes");
+            }
+            assert!(res.is_ok());
+        }
+
+        let path3 = Path::new("/Users/arunsasidharan/EEGdata/Sleep/SamplePSGData/FA7310XW.EEG");
+        if path3.exists() {
+            let res = nk::load_nihon_kohden_impl(path3);
+            println!("NK FA7310XW Load Result: {:?}", res.is_ok());
+            if let Ok(ref edf) = res {
+                println!("NK FA7310XW Signal count: {}, duration: {} s ({:.2} hours)", edf.signal_count, edf.duration_seconds, edf.duration_seconds / 3600.0);
+                assert_eq!(edf.signal_count, 41, "Signal count should be 41");
+                assert!(edf.duration_seconds > 30000.0, "Duration should be > 8 hours");
+            }
+            assert!(res.is_ok());
+        }
+    }
+
+    #[test]
+    fn test_embla_loader() {
+        let path = Path::new("/Users/arunsasidharan/EEGdata/StJohns_SleepData/Issue_20250307/Patients (not working files)/B SREENIVASA/C3.ebm");
+        if path.exists() {
+            let res = embla::load_embla_dir_or_file_impl(path);
+            println!("EMBLA Load Result: {:?}", res.is_ok());
+            if let Ok(ref edf) = res {
+                println!("EMBLA Signal count: {}, duration: {} s ({:.2} hours)", edf.signal_count, edf.duration_seconds, edf.duration_seconds / 3600.0);
+                assert!(edf.duration_seconds > 20000.0, "EMBLA duration should be > 5.5 hours (full recording)");
+            } else if let Err(ref e) = res {
+                println!("EMBLA Load Error: {}", e);
+            }
+            assert!(res.is_ok());
+        }
+    }
+
+    #[test]
+    fn test_esedb_loader() {
+        let path = Path::new("/Users/arunsasidharan/EEGdata/StJohns_SleepData/Issue_20250307/Patients (not working files)/shaikh ameer basha/Shaik Ameer Basha ILD.esedb");
+        if path.exists() {
+            let res = esedb::parse_esedb_file(path);
+            println!("ESEDB Load Result: {:?}", res.is_ok());
+            if let Ok(ref records) = res {
+                println!("ESEDB records count: {}", records.len());
+                assert!(records.len() > 100, "ESEDB should have > 100 stage records");
+            } else if let Err(ref e) = res {
+                println!("ESEDB Load Error: {}", e);
+            }
+            assert!(res.is_ok());
         }
     }
 }

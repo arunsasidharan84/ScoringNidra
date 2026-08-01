@@ -1170,6 +1170,29 @@ Future<List<SleepStage>> _loadEmblaEsrcScoring(
   String path,
   int epochCount,
 ) async {
+  if (path.toLowerCase().endsWith('.esedb')) {
+    final nativeRecords = EegBackend.loadEsedbNative(path);
+    if (nativeRecords != null && nativeRecords.isNotEmpty) {
+      if (epochCount <= 0) {
+        final maxStart = nativeRecords.map((e) => e.startSec).fold(0, math.max);
+        epochCount = math.max(1, (maxStart / 30).ceil() + 1);
+      }
+      final stages = List.filled(epochCount, SleepStage.unknown);
+      for (var i = 0; i < nativeRecords.length; i++) {
+        final cur = nativeRecords[i];
+        final stage = _stageFromYasaLabel(cur.stage);
+        final epStart = cur.startSec ~/ 30;
+        final epEnd = i + 1 < nativeRecords.length
+            ? (nativeRecords[i + 1].startSec ~/ 30)
+            : epochCount;
+        for (var ep = epStart; ep < epEnd && ep < epochCount; ep++) {
+          if (ep >= 0) stages[ep] = stage;
+        }
+      }
+      return stages;
+    }
+  }
+
   final bytes = await File(path).readAsBytes();
   String text;
   try {

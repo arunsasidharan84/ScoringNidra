@@ -120,13 +120,19 @@ pub fn load_single_ebm(file_path: &Path) -> Result<SingleEmblaChannel, String> {
         return Err("No data block found in .ebm file".into());
     }
 
-    // Determine scale
-    let dig_max = 32767.0f64;
+    // Determine scale (in microvolts per LSB count)
+    let default_embla_scale = (1000.0 / 65536.0) as f64; // ~0.015258789 uV per count
     let scale = if raw_range[2] != 0.0 {
-        raw_range[2]
+        let r2 = raw_range[2];
+        if r2.abs() <= 1e-4 { r2 * 1e6 } else { r2 }
     } else {
         let max_abs = raw_range[0].abs().max(raw_range[1].abs());
-        if max_abs > 0.0 { max_abs / dig_max } else { 1.0 }
+        if max_abs > 0.0 {
+            let max_abs_uv = if max_abs <= 1.0 { max_abs * 1e6 } else { max_abs };
+            max_abs_uv / 32767.0
+        } else {
+            default_embla_scale
+        }
     };
 
     // Read samples
@@ -199,12 +205,40 @@ pub fn load_embla_dir_or_file_impl(path: &Path) -> Result<EdfFile, String> {
         return Err("Failed to parse any valid .ebm channels".into());
     }
 
-    let sample_rate = channels[0].sample_rate;
-    let min_samples = channels.iter().map(|c| c.samples.len()).min().unwrap_or(0);
+    let max_sample_rate = channels.iter().map(|c| c.sample_rate).fold(0.0f32, f32::max);
+    let target_sample_rate = if max_sample_rate > 0.0 { max_sample_rate } else { 200.0 };
+
+    // Resample lower-rate channels to target_sample_rate using linear interpolation
+    for ch in &mut channels {
+        if ch.sample_rate > 0.0 && (ch.sample_rate - target_sample_rate).abs() > 0.1 && !ch.samples.is_empty() {
+            let channel_dur = ch.samples.len() as f64 / ch.sample_rate as f64;
+            let target_len = (channel_dur * target_sample_rate as f64) as usize;
+            let old_len = ch.samples.len();
+            if old_len > 1 && target_len > 1 {
+                let mut resampled = Vec::with_capacity(target_len);
+                let step = (old_len - 1) as f64 / (target_len - 1) as f64;
+                for i in 0..target_len {
+                    let src_idx = i as f64 * step;
+                    let idx0 = (src_idx.floor() as usize).min(old_len - 1);
+                    let idx1 = (idx0 + 1).min(old_len - 1);
+                    let frac = (src_idx - idx0 as f64) as f32;
+                    let val = ch.samples[idx0] * (1.0 - frac) + ch.samples[idx1] * frac;
+                    resampled.push(val);
+                }
+                ch.samples = resampled;
+                ch.sample_rate = target_sample_rate;
+            }
+        }
+    }
+
+    let max_samples = channels.iter().map(|c| c.samples.len()).max().unwrap_or(0);
 
     let mut signals = Vec::with_capacity(channels.len());
     for mut ch in channels {
-        ch.samples.truncate(min_samples);
+        if ch.samples.len() < max_samples {
+            let last_val = ch.samples.last().copied().unwrap_or(0.0);
+            ch.samples.resize(max_samples, last_val);
+        }
         let count = ch.samples.len() as i32;
         let label_c = CString::new(ch.name).unwrap_or_else(|_| CString::new("").unwrap());
         let samps = std::mem::take(&mut ch.samples);
@@ -217,14 +251,14 @@ pub fn load_embla_dir_or_file_impl(path: &Path) -> Result<EdfFile, String> {
     }
 
     let num_channels = signals.len();
-    let total_duration = if num_channels > 0 && min_samples > 0 {
-        min_samples as f32 / sample_rate
+    let total_duration = if num_channels > 0 && max_samples > 0 {
+        max_samples as f32 / target_sample_rate
     } else {
         0.0
     };
 
     Ok(EdfFile {
-        sample_rate_hz: sample_rate,
+        sample_rate_hz: target_sample_rate,
         signal_count: num_channels as i32,
         signals: signals.leak().as_mut_ptr(),
         duration_seconds: total_duration,

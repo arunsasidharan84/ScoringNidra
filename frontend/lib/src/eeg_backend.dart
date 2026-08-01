@@ -154,6 +154,11 @@ typedef _RunCommandStreamDart =
       Pointer<NativeFunction<Void Function(Pointer<Utf8>)>> callback,
     );
 
+typedef _LoadEsedbJsonNative = Pointer<Utf8> Function(Pointer<Utf8> path);
+typedef _LoadEsedbJsonDart = Pointer<Utf8> Function(Pointer<Utf8> path);
+typedef _FreeStringNative = Void Function(Pointer<Utf8> ptr);
+typedef _FreeStringDart = void Function(Pointer<Utf8> ptr);
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Configuration object passed around to control which channel drives
@@ -930,6 +935,20 @@ class EegBackend {
         debugPrint('[EegBackend] sleep_eeg_free_edf lookup error: $e');
       }
       try {
+        _loadEsedbJson = library.lookupFunction<_LoadEsedbJsonNative, _LoadEsedbJsonDart>(
+          'sleep_eeg_load_esedb_json',
+        );
+      } catch (e) {
+        debugPrint('[EegBackend] sleep_eeg_load_esedb_json lookup error: $e');
+      }
+      try {
+        _freeString = library.lookupFunction<_FreeStringNative, _FreeStringDart>(
+          'sleep_eeg_free_string',
+        );
+      } catch (e) {
+        debugPrint('[EegBackend] sleep_eeg_free_string lookup error: $e');
+      }
+      try {
         _computeSpectrogramNative = library
             .lookupFunction<_ComputeSpectrogramNative, _ComputeSpectrogramDart>(
               'sleep_eeg_compute_welch_spectrogram',
@@ -960,9 +979,40 @@ class EegBackend {
   _LoadEdfDart? _loadNk;
   _LoadEdfDart? _loadEmbla;
   _FreeEdfDart? _freeEdf;
+  _LoadEsedbJsonDart? _loadEsedbJson;
+  _FreeStringDart? _freeString;
   _ComputeSpectrogramDart? _computeSpectrogramNative;
   _FreeSpectrogramDart? _freeSpectrogramNative;
   _RunCommandStreamDart? _runCommandStream;
+
+  static List<({int startSec, String stage})>? loadEsedbNative(String filePath) {
+    try {
+      final lib = _openDynamicLibrary();
+      final loadFn = lib.lookupFunction<_LoadEsedbJsonNative, _LoadEsedbJsonDart>(
+        'sleep_eeg_load_esedb_json',
+      );
+      final freeFn = lib.lookupFunction<_FreeStringNative, _FreeStringDart>(
+        'sleep_eeg_free_string',
+      );
+      final pathPtr = filePath.toNativeUtf8();
+      final resultPtr = loadFn(pathPtr);
+      calloc.free(pathPtr);
+      if (resultPtr == nullptr) return null;
+
+      final jsonStr = resultPtr.toDartString();
+      freeFn(resultPtr);
+
+      final List<dynamic> list = jsonDecode(jsonStr);
+      return list.map((item) {
+        final stage = item['stage'] as String;
+        final startSec = (item['start_sec'] as num).toInt();
+        return (startSec: startSec, stage: stage);
+      }).toList();
+    } catch (e) {
+      debugPrint('[EegBackend] loadEsedbNative error: $e');
+      return null;
+    }
+  }
 
   final _displayPointCache = <String, List<Float32List>>{};
   final _displayPointCacheOrder = <String>[];
