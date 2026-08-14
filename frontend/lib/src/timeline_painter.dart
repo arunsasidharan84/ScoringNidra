@@ -773,6 +773,19 @@ class HypnogramPainter extends CustomPainter {
         ..strokeWidth = 1.2
         ..style = PaintingStyle.stroke;
       canvas.drawPath(path, linePaint);
+
+      // Clean top-right badge for SWA range & units
+      _drawText(
+        canvas,
+        'SWA (max ${maxV.toStringAsFixed(1)} µV²)',
+        Offset(size.width - 12, 12),
+        style: _axisTextStyle.copyWith(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: Colors.black87,
+        ),
+        align: TextAlign.right,
+      );
     }
   }
 
@@ -825,16 +838,18 @@ class HypnogramPainter extends CustomPainter {
         ..strokeWidth = 2.0
         ..style = PaintingStyle.stroke,
     );
+
+    // Clean top-right badge for Stage Probability range & units
     _drawText(
       canvas,
-      'P(${_stageLabel(stage)})',
-      Offset(size.width - 54, 12),
+      'P(${_stageLabel(stage)}): 0.0 – 1.0 (0 – 100%)',
+      Offset(size.width - 12, 12),
       style: _axisTextStyle.copyWith(
         color: color,
         fontSize: 10,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.bold,
       ),
-      align: TextAlign.left,
+      align: TextAlign.right,
     );
   }
 

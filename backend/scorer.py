@@ -299,7 +299,11 @@ def read_raw_file(path: str | Path, preload: bool = False) -> mne.io.BaseRaw:
         return mne.io.read_raw_fif(path, preload=preload, verbose="ERROR")
     if suffix == ".set":
         return mne.io.read_raw_eeglab(path, preload=preload, verbose="ERROR")
-    raise ValueError(f"Unsupported data file extension: {suffix}. Use EDF/BDF/GDF/FIF/SET.")
+    if suffix == ".vhdr":
+        return mne.io.read_raw_brainvision(path, preload=preload, verbose="ERROR")
+    if suffix == ".eeg":
+        return mne.io.read_raw_nihon(path, preload=preload, verbose="ERROR")
+    raise ValueError(f"Unsupported data file extension: {suffix}. Use EDF/BDF/GDF/FIF/SET/VHDR/EEG.")
 
 
 def scan_channels(data_file: str | Path) -> tuple[list[str], ChannelGuess, float, float]:

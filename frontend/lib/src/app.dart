@@ -186,7 +186,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                             ? 'Load Orbit file (.orb, .signal)'
                             : (kind == 'ebm'
                                   ? 'Load EMBLA / REMlogic recording (.ebm)'
-                                  : 'Load EEG recording (.edf, .eeg, .orb, .mat, .r09, .ebm)')))),
+                                  : 'Load EEG recording (.edf, .eeg, .vhdr, .orb, .mat, .r09, .ebm)')))),
       type: FileType.custom,
       allowedExtensions: kind == 'mat'
           ? ['mat']
@@ -198,7 +198,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                             ? ['orb', 'signal']
                             : (kind == 'ebm'
                                   ? ['ebm', 'EBM']
-                                  : ['edf', 'EDF', 'eeg', 'EEG', 'orb', 'signal', 'mat', 'r09', 'ebm', 'EBM'])))),
+                                  : ['edf', 'EDF', 'eeg', 'EEG', 'vhdr', 'VHDR', 'orb', 'signal', 'mat', 'r09', 'ebm', 'EBM'])))),
     );
     final path = result?.files.single.path;
     if (path == null) {
@@ -223,6 +223,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
           kind == 'orbit' ||
           kind == 'ebm' ||
           lowerPath.endsWith('.eeg') ||
+          lowerPath.endsWith('.vhdr') ||
           lowerPath.endsWith('.ebm') ||
           lowerPath.endsWith('.orb') ||
           lowerPath.endsWith('.signal')) {
@@ -469,8 +470,11 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
     if (mounted) {
       setState(() {
         _viewport = newViewport;
+        final prob = v.stageProbabilities.length > epoch && v.stageProbabilities[epoch].isNotEmpty
+            ? '  |  ${(v.stageProbabilities[epoch].values.reduce(math.max) * 100).toStringAsFixed(0)}% confidence'
+            : '';
         _status =
-            'Epoch ${epoch + 1} / ${v.epochCount}  |  ${v.stages[epoch].label}';
+            'Epoch ${epoch + 1} / ${v.epochCount}  |  ${v.stages[epoch].label}$prob';
       });
       if (claimFocus) {
         _viewerFocusNode.requestFocus();
@@ -717,6 +721,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
         updated.epochSeconds,
         events: updated.scoredEvents,
         stagesUncertain: updated.stagesUncertain,
+        stagesConfidence: updated.stagesConfidence,
+        stageProbabilities: updated.stageProbabilities,
       );
     }
   }
@@ -784,6 +790,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
         updated.epochSeconds,
         events: updated.scoredEvents,
         stagesUncertain: updated.stagesUncertain,
+        stagesConfidence: updated.stagesConfidence,
+        stageProbabilities: updated.stageProbabilities,
       );
     }
   }
@@ -803,6 +811,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
       v.stages,
       v.epochSeconds,
       stagesUncertain: v.stagesUncertain,
+      stagesConfidence: v.stagesConfidence,
+      stageProbabilities: v.stageProbabilities,
     );
   }
 
@@ -854,6 +864,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
         _viewport = v.copyWith(
           stages: result.stages,
           stagesUncertain: result.stagesUncertain,
+          stagesConfidence: result.stagesConfidence,
+          stageProbabilities: result.stageProbabilities,
         );
       });
     }
@@ -1564,6 +1576,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
       viewport.epochSeconds,
       stagesUncertain: viewport.stagesUncertain,
       stagesConfidence: viewport.stagesConfidence,
+      stageProbabilities: viewport.stageProbabilities,
     );
     final scoringPath = _analyseNidraScoringPath(path);
     if (!mounted) return;
@@ -1844,6 +1857,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
       _activePath,
       events: v.scoredEvents,
       stagesUncertain: v.stagesUncertain,
+      stagesConfidence: v.stagesConfidence,
+      stageProbabilities: v.stageProbabilities,
       onStatus: _setStatus,
     );
   }
@@ -1859,13 +1874,14 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
       'any',
       onStatus: _setStatus,
     );
-    if (result == null) return;
-    setState(() {
-      _comparisonStages = result.stages;
-      _status =
-          'Loaded ${result.sourceFormat} comparison — '
-          '${_disagreementCount(v.stages, result.stages)} disagreements';
-    });
+    if (result != null) {
+      setState(() {
+        _comparisonStages = result.stages;
+        _status =
+            'Loaded ${result.sourceFormat} comparison — '
+            '${_disagreementCount(v.stages, result.stages)} disagreements';
+      });
+    }
   }
 
   void _removeComparisonScoring() {
@@ -2234,6 +2250,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                 _viewport!.epochSeconds,
                 events: _viewport!.scoredEvents,
                 stagesUncertain: _viewport!.stagesUncertain,
+                stagesConfidence: _viewport!.stagesConfidence,
+                stageProbabilities: _viewport!.stageProbabilities,
               );
             }
           } catch (e) {
@@ -2379,6 +2397,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                 _viewport!.epochSeconds,
                 events: _viewport!.scoredEvents,
                 stagesUncertain: _viewport!.stagesUncertain,
+                stagesConfidence: _viewport!.stagesConfidence,
+                stageProbabilities: _viewport!.stageProbabilities,
               );
             }
           } catch (e) {
@@ -3733,7 +3753,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
         label: 'Data',
         menus: [
           PlatformMenuItem(
-            label: 'Load EEG Recording (.edf, .eeg, .orb, .mat, .r09, .ebm)…',
+            label: 'Load EEG Recording (.edf, .eeg, .vhdr, .orb, .mat, .r09, .ebm)…',
             onSelected: () => _openRecording(kind: 'edf'),
           ),
           PlatformMenuItem(
@@ -3851,6 +3871,18 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             label: 'Delete all events',
             onSelected: _deleteAllEvents,
           ),
+        ],
+      ),
+      // ─── Jump ─────────────────────────────────────────────────────────
+      PlatformMenu(
+        label: 'Jump',
+        menus: [
+          PlatformMenuItem(label: 'Next Unscored [U]', onSelected: _jumpNextUnscored),
+          PlatformMenuItem(label: 'Next Uncertain [Q]', onSelected: _jumpNextUncertain),
+          PlatformMenuItem(label: 'Next Transition [T]', onSelected: _jumpNextTransition),
+          PlatformMenuItem(label: 'Next Human [H]', onSelected: _jumpNextHuman),
+          PlatformMenuItem(label: 'Next Event [E]', onSelected: _jumpNextEvent),
+          PlatformMenuItem(label: 'Next Disagreement [D]', onSelected: _jumpNextDisagreement),
         ],
       ),
       // ─── Utilities ────────────────────────────────────────────────────
@@ -4000,7 +4032,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             menuChildren: [
               MenuItemButton(
                 onPressed: () => _openRecording(kind: 'edf'),
-                child: const Text('Load EEG Recording (.edf, .eeg, .orb, .mat, .r09, .ebm)…'),
+                child: const Text('Load EEG Recording (.edf, .eeg, .vhdr, .orb, .mat, .r09, .ebm)…'),
               ),
               MenuItemButton(
                 onPressed: () => _openRecording(kind: 'edf'),
@@ -4315,7 +4347,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                             ),
                             const Divider(height: 24),
                             const Text(
-                              'Selected Recording Files (EDF/ORB/SIGNAL):',
+                              'Selected Recording Files (EDF/EEG/VHDR/ORB/EBM/MAT/R09):',
                               style: TextStyle(fontWeight: FontWeight.bold),
                             ),
                             const SizedBox(height: 8),
@@ -4371,7 +4403,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                                       dialogTitle:
                                           'Select EEG files for batch AutoscoreNidra',
                                       type: FileType.custom,
-                                      allowedExtensions: ['edf', 'orb', 'signal'],
+                                      allowedExtensions: ['edf', 'EDF', 'eeg', 'EEG', 'vhdr', 'VHDR', 'orb', 'signal', 'ebm', 'EBM', 'mat', 'r09'],
                                       allowMultiple: true,
                                     );
                                     if (result != null) {
@@ -4403,7 +4435,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                                           for (final file in files) {
                                             if (file is File) {
                                               final ext = file.path.split('.').last.toLowerCase();
-                                              if ((ext == 'edf' || ext == 'orb' || ext == 'signal') &&
+                                              if ((ext == 'edf' || ext == 'eeg' || ext == 'vhdr' || ext == 'orb' || ext == 'signal' || ext == 'ebm' || ext == 'mat' || ext == 'r09') &&
                                                   !_batchStagingFiles.contains(file.path)) {
                                                 _batchStagingFiles.add(file.path);
                                               }
@@ -4462,7 +4494,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                                   child: Text('SeqSleepNet (PhysioEx)'),
                                 ),
                                 DropdownMenuItem(
-                                  value: 'sleeptransformer',
+                                  value: 'sleeptansformer',
                                   child: Text('SleepTransformer (PhysioEx)'),
                                 ),
                                 DropdownMenuItem(
@@ -5190,6 +5222,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                       _Toolbar(
                         viewport: viewport,
                         onJump: _jumpToEpoch,
+                        onFocusChanged: (focused) =>
+                            setState(() => _textInputFocused = focused),
                         onPrevious: _previousEpoch,
                         onNext: _nextEpoch,
                         onUnscored: _jumpNextUnscored,
@@ -5205,6 +5239,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                         onToggleUncertainty: _toggleUncertainty,
                         tfEnabled: _config.tfEnabled,
                         onToggleWavelet: _toggleWavelet,
+                        onOverlayChanged: _setHypnogramOverlayMode,
                       ),
                       Expanded(
                         child: viewport == null
@@ -5220,6 +5255,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                                 tfEnabled: _config.tfEnabled,
                                 onResizeFlex: _updateFlexValues,
                                 onLightsMarkersChanged: _updateLightsMarkers,
+                                onOverlayChanged: _setHypnogramOverlayMode,
                               ),
                       ),
                       _StatusBar(
@@ -5261,6 +5297,114 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
       });
     }
   }
+
+  void _setHypnogramOverlayMode(String overlayMode, [String? probabilityStage]) {
+    setState(() {
+      _config.hypnogramOverlayMode = overlayMode;
+      if (probabilityStage != null) {
+        _config.hypnogramProbabilityStage = probabilityStage;
+      }
+      if (_viewport != null) {
+        _viewport = _viewport!.copyWith(
+          hypnogramOverlayMode: overlayMode,
+          hypnogramProbabilityStage:
+              probabilityStage ?? _config.hypnogramProbabilityStage,
+        );
+      }
+    });
+    if (_activePath != null) {
+      unawaited(saveAutoConfig(_activePath!, _config));
+    }
+  }
+}
+
+int? _parseJumpInputToEpoch(
+  String input,
+  String mode,
+  int epochCount, {
+  DateTime? recordingStartTime,
+  double epochSeconds = 30.0,
+}) {
+  if (input.trim().isEmpty || epochCount <= 0) return null;
+  final str = input.trim();
+
+  if (mode == 'Epoch') {
+    final val = int.tryParse(str);
+    return val?.clamp(1, epochCount);
+  }
+
+  if (mode == 'Elapsed') {
+    final timeMatch = RegExp(r'^(\d+):(\d+)(?::(\d+))?$').firstMatch(str);
+    if (timeMatch != null) {
+      final p1 = int.parse(timeMatch.group(1)!);
+      final p2 = int.parse(timeMatch.group(2)!);
+      final p3 = timeMatch.group(3) != null ? int.parse(timeMatch.group(3)!) : 0;
+      final totalSec = timeMatch.group(3) != null ? (p1 * 3600 + p2 * 60 + p3) : (p1 * 60 + p2);
+      final epoch = (totalSec / epochSeconds).round() + 1;
+      return epoch.clamp(1, epochCount);
+    }
+    double sec = 0.0;
+    var matched = false;
+    final hMatch = RegExp(r'(\d+)\s*h', caseSensitive: false).firstMatch(str);
+    if (hMatch != null) {
+      sec += int.parse(hMatch.group(1)!) * 3600;
+      matched = true;
+    }
+    final mMatch = RegExp(r'(\d+)\s*m', caseSensitive: false).firstMatch(str);
+    if (mMatch != null) {
+      sec += int.parse(mMatch.group(1)!) * 60;
+      matched = true;
+    }
+    final sMatch = RegExp(r'(\d+)\s*s', caseSensitive: false).firstMatch(str);
+    if (sMatch != null) {
+      sec += int.parse(sMatch.group(1)!);
+      matched = true;
+    }
+    if (!matched) {
+      final val = double.tryParse(str);
+      if (val != null) {
+        sec = val;
+        matched = true;
+      }
+    }
+    if (matched) {
+      final epoch = (sec / epochSeconds).round() + 1;
+      return epoch.clamp(1, epochCount);
+    }
+  }
+
+  if (mode == 'Clock') {
+    final clockMatch = RegExp(
+      r'^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$',
+      caseSensitive: false,
+    ).firstMatch(str);
+
+    if (clockMatch != null) {
+      var h = int.parse(clockMatch.group(1)!);
+      final m = int.parse(clockMatch.group(2)!);
+      final s = clockMatch.group(3) != null ? int.parse(clockMatch.group(3)!) : 0;
+      final ampm = clockMatch.group(4)?.toUpperCase();
+
+      if (ampm == 'PM' && h < 12) h += 12;
+      if (ampm == 'AM' && h == 12) h = 0;
+
+      final targetSecondsInDay = h * 3600 + m * 60 + s;
+      final startSecondsInDay = recordingStartTime != null
+          ? recordingStartTime.hour * 3600 +
+            recordingStartTime.minute * 60 +
+            recordingStartTime.second
+          : 0;
+
+      var diff = targetSecondsInDay - startSecondsInDay;
+      if (diff < 0) {
+        diff += 86400;
+      }
+      final epoch = (diff / epochSeconds).round() + 1;
+      return epoch.clamp(1, epochCount);
+    }
+  }
+
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5271,6 +5415,7 @@ class _Toolbar extends StatefulWidget {
   const _Toolbar({
     required this.viewport,
     required this.onJump,
+    this.onFocusChanged,
     required this.onPrevious,
     required this.onNext,
     required this.onUnscored,
@@ -5286,10 +5431,12 @@ class _Toolbar extends StatefulWidget {
     required this.onToggleUncertainty,
     required this.tfEnabled,
     required this.onToggleWavelet,
+    this.onOverlayChanged,
   });
 
   final EegViewport? viewport;
   final void Function(int, [bool]) onJump;
+  final ValueChanged<bool>? onFocusChanged;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onUnscored;
@@ -5305,6 +5452,8 @@ class _Toolbar extends StatefulWidget {
   final VoidCallback onToggleUncertainty;
   final bool tfEnabled;
   final VoidCallback onToggleWavelet;
+  final void Function(String overlayMode, [String? probabilityStage])?
+  onOverlayChanged;
 
   @override
   State<_Toolbar> createState() => _ToolbarState();
@@ -5313,6 +5462,7 @@ class _Toolbar extends StatefulWidget {
 class _ToolbarState extends State<_Toolbar> {
   late final TextEditingController _ctrl;
   final FocusNode _focusNode = FocusNode();
+  String _jumpMode = 'Epoch'; // 'Epoch', 'Elapsed', 'Clock'
 
   @override
   void initState() {
@@ -5323,16 +5473,67 @@ class _ToolbarState extends State<_Toolbar> {
   }
 
   void _handleFocusChange() {
+    widget.onFocusChanged?.call(_focusNode.hasFocus);
     if (!_focusNode.hasFocus) {
-      final val = int.tryParse(_ctrl.text);
-      if (val != null && widget.viewport != null) {
-        final clamped = val.clamp(1, widget.viewport!.epochCount);
-        widget.onJump(clamped, true);
-      } else {
-        final epoch = widget.viewport?.currentEpoch ?? 0;
-        _ctrl.text = '${epoch + 1}';
+      _applyJumpInput(true);
+    }
+  }
+
+  void _applyJumpInput(bool commit) {
+    final text = _ctrl.text.trim();
+    if (text.isEmpty || widget.viewport == null) return;
+    final vp = widget.viewport!;
+    final targetEpoch = _parseJumpInputToEpoch(
+      text,
+      _jumpMode,
+      vp.epochCount,
+      recordingStartTime: vp.recordingStartTime,
+      epochSeconds: vp.epochSeconds.toDouble(),
+    );
+    if (targetEpoch != null) {
+      widget.onJump(targetEpoch, commit);
+      if (commit && _jumpMode == 'Epoch') {
+        _ctrl.text = '$targetEpoch';
       }
     }
+  }
+
+  String _formatOutOfText(EegViewport vp) {
+    final epochCount = vp.epochCount;
+    final epochSec = vp.epochSeconds;
+    final totalSec = epochCount * epochSec;
+
+    if (_jumpMode == 'Epoch') {
+      return '/ $epochCount';
+    } else if (_jumpMode == 'Elapsed') {
+      final h = totalSec ~/ 3600;
+      final m = (totalSec % 3600) ~/ 60;
+      final s = totalSec % 60;
+      return '/ ${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    } else {
+      final start = vp.recordingStartTime;
+      if (start != null) {
+        final end = start.add(Duration(seconds: totalSec));
+        return '/ ${end.hour.toString().padLeft(2, '0')}:${end.minute.toString().padLeft(2, '0')}:${end.second.toString().padLeft(2, '0')}';
+      } else {
+        final h = totalSec ~/ 3600;
+        final m = (totalSec % 3600) ~/ 60;
+        final s = totalSec % 60;
+        return '/ ${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+      }
+    }
+  }
+
+  String _currentOverlaySelection(EegViewport? vp) {
+    if (vp == null || vp.hypnogramOverlayMode == 'Off') return 'Off';
+    if (vp.hypnogramOverlayMode == 'SWA') return 'SWA';
+    final st = vp.hypnogramProbabilityStage.toUpperCase();
+    if (st == 'WAKE' || st == 'W') return 'P(Wake)';
+    if (st == 'N1') return 'P(N1)';
+    if (st == 'N2') return 'P(N2)';
+    if (st == 'N3') return 'P(N3)';
+    if (st == 'REM' || st == 'R') return 'P(REM)';
+    return 'P(N2)';
   }
 
   @override
@@ -5340,7 +5541,23 @@ class _ToolbarState extends State<_Toolbar> {
     super.didUpdateWidget(old);
     final epoch = widget.viewport?.currentEpoch ?? 0;
     if (!_focusNode.hasFocus) {
-      _ctrl.text = '${epoch + 1}';
+      if (_jumpMode == 'Epoch') {
+        _ctrl.text = '${epoch + 1}';
+      } else if (_jumpMode == 'Elapsed') {
+        final sec = epoch * (widget.viewport?.epochSeconds ?? 30);
+        final h = sec ~/ 3600;
+        final m = (sec % 3600) ~/ 60;
+        final s = sec % 60;
+        _ctrl.text =
+            '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+      } else if (_jumpMode == 'Clock') {
+        final start = widget.viewport?.recordingStartTime ?? DateTime.now();
+        final time = start.add(
+          Duration(seconds: epoch * (widget.viewport?.epochSeconds ?? 30)),
+        );
+        _ctrl.text =
+            '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
+      }
     }
   }
 
@@ -5365,95 +5582,102 @@ class _ToolbarState extends State<_Toolbar> {
           child: Row(
             children: [
               const SizedBox(width: 8),
-              const Text('Jump to epoch:', style: TextStyle(fontSize: 14)),
+              DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _jumpMode,
+                  isDense: true,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Colors.black87,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'Epoch', child: Text('Jump to epoch:')),
+                    DropdownMenuItem(
+                      value: 'Elapsed',
+                      child: Text('Jump to elapsed:'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Clock',
+                      child: Text('Jump to clock:'),
+                    ),
+                  ],
+                  onChanged: enabled
+                      ? (val) {
+                          if (val == null) return;
+                          setState(() {
+                            _jumpMode = val;
+                            final epoch = widget.viewport?.currentEpoch ?? 0;
+                            if (val == 'Epoch') {
+                              _ctrl.text = '${epoch + 1}';
+                            } else if (val == 'Elapsed') {
+                              final sec =
+                                  epoch * (widget.viewport?.epochSeconds ?? 30);
+                              final h = sec ~/ 3600;
+                              final m = (sec % 3600) ~/ 60;
+                              final s = sec % 60;
+                              _ctrl.text =
+                                  '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+                            } else if (val == 'Clock') {
+                              final start =
+                                  widget.viewport?.recordingStartTime ??
+                                  DateTime.now();
+                              final time = start.add(
+                                Duration(
+                                  seconds:
+                                      epoch * (widget.viewport?.epochSeconds ?? 30),
+                                ),
+                              );
+                              _ctrl.text =
+                                  '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
+                            }
+                          });
+                        }
+                      : null,
+                ),
+              ),
               const SizedBox(width: 6),
               SizedBox(
-                width: 56,
+                width: _jumpMode == 'Epoch' ? 56 : 88,
                 height: 24,
-                child: Shortcuts(
-                  shortcuts: const <ShortcutActivator, Intent>{
-                    SingleActivator(LogicalKeyboardKey.keyW): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.digit1):
-                        DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.digit2):
-                        DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.digit3):
-                        DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.keyR): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.keyI): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.keyN): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.keyU): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.delete):
-                        DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.keyA): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.f1): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.f2): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.f3): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.f4): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.f5): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.f6): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.f7): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.f8): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.f9): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.f10): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.f11): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.f12): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.backspace):
-                        DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.keyZ): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.keyK, control: true):
-                        DoNothingIntent(),
-                    SingleActivator(
-                      LogicalKeyboardKey.keyS,
-                      control: true,
-                      shift: true,
-                    ): DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.keyC, control: true):
-                        DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.keyF, control: true):
-                        DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.arrowRight):
-                        DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.arrowLeft):
-                        DoNothingIntent(),
-                    SingleActivator(LogicalKeyboardKey.keyQ): DoNothingIntent(),
-                  },
-                  child: TextField(
-                    controller: _ctrl,
-                    focusNode: _focusNode,
-                    enabled: enabled,
-                    keyboardType: TextInputType.number,
-                    textAlign: TextAlign.center,
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 4,
-                      ),
+                child: TextField(
+                  controller: _ctrl,
+                  focusNode: _focusNode,
+                  enabled: enabled,
+                  keyboardType: _jumpMode == 'Epoch'
+                      ? TextInputType.number
+                      : TextInputType.text,
+                  textAlign: TextAlign.center,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: const OutlineInputBorder(),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 4,
                     ),
-                    style: const TextStyle(fontSize: 12),
-                    onTapOutside: (_) => _focusNode.unfocus(),
-                    onSubmitted: (_) => _focusNode.unfocus(),
-                    onChanged: (text) {
-                      final val = int.tryParse(text);
-                      if (val != null && widget.viewport != null) {
-                        final clamped = val.clamp(
-                          1,
-                          widget.viewport!.epochCount,
-                        );
-                        widget.onJump(clamped, false);
-                      }
-                    },
+                    hintText: _jumpMode == 'Epoch'
+                        ? '1'
+                        : (_jumpMode == 'Elapsed' ? '01:30:00' : '23:15:00'),
                   ),
+                  style: const TextStyle(fontSize: 12),
+                  onTapOutside: (_) => _focusNode.unfocus(),
+                  onSubmitted: (_) {
+                    _applyJumpInput(true);
+                    _focusNode.unfocus();
+                  },
+                  onChanged: (_) => _applyJumpInput(false),
                 ),
               ),
               if (widget.viewport != null)
                 Padding(
-                  padding: const EdgeInsets.only(left: 3),
+                  padding: const EdgeInsets.only(left: 4, right: 4),
                   child: Text(
-                    '/ ${widget.viewport!.epochCount}',
-                    style: const TextStyle(fontSize: 11, color: Colors.black54),
+                    _formatOutOfText(widget.viewport!),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.black54,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               const SizedBox(width: 8),
@@ -5509,6 +5733,83 @@ class _ToolbarState extends State<_Toolbar> {
               ),
               const SizedBox(width: 8),
               const _Divider(),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _currentOverlaySelection(widget.viewport),
+                    isDense: true,
+                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'SWA',
+                        child: Text('Overlay: SWA'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'P(Wake)',
+                        child: Text('Overlay: P(Wake)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'P(N1)',
+                        child: Text('Overlay: P(N1)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'P(N2)',
+                        child: Text('Overlay: P(N2)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'P(N3)',
+                        child: Text('Overlay: P(N3)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'P(REM)',
+                        child: Text('Overlay: P(REM)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'Off',
+                        child: Text('Overlay: Off'),
+                      ),
+                    ],
+                    onChanged: enabled
+                        ? (val) {
+                            if (val == null) return;
+                            if (val == 'SWA') {
+                              widget.onOverlayChanged?.call('SWA');
+                            } else if (val == 'Off') {
+                              widget.onOverlayChanged?.call('Off');
+                            } else if (val == 'P(Wake)') {
+                              widget.onOverlayChanged?.call(
+                                'Sleep-stage probability',
+                                'Wake',
+                              );
+                            } else if (val == 'P(N1)') {
+                              widget.onOverlayChanged?.call(
+                                'Sleep-stage probability',
+                                'N1',
+                              );
+                            } else if (val == 'P(N2)') {
+                              widget.onOverlayChanged?.call(
+                                'Sleep-stage probability',
+                                'N2',
+                              );
+                            } else if (val == 'P(N3)') {
+                              widget.onOverlayChanged?.call(
+                                'Sleep-stage probability',
+                                'N3',
+                              );
+                            } else if (val == 'P(REM)') {
+                              widget.onOverlayChanged?.call(
+                                'Sleep-stage probability',
+                                'REM',
+                              );
+                            }
+                          }
+                        : null,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              const _Divider(),
               _ToolButton(
                 label: 'Toggle uncertain [Q]',
                 tooltip: 'Toggle uncertainty for current epoch',
@@ -5550,6 +5851,7 @@ class _ScoringHeroSurface extends StatefulWidget {
     required this.onResizeFlex,
     required this.onLightsMarkersChanged,
     this.comparisonStages,
+    this.onOverlayChanged,
   });
 
   final EegViewport viewport;
@@ -5574,6 +5876,8 @@ class _ScoringHeroSurface extends StatefulWidget {
   onResizeFlex;
   final void Function(double lightsOffSeconds, double lightsOnSeconds)
   onLightsMarkersChanged;
+  final void Function(String overlayMode, [String? probabilityStage])?
+  onOverlayChanged;
 
   @override
   State<_ScoringHeroSurface> createState() => _ScoringHeroSurfaceState();
@@ -5943,13 +6247,26 @@ class _StatusBar extends StatelessWidget {
           ? '  |  Total Length: ${totalSelectionLength.toStringAsFixed(2)} s'
           : '';
 
-      // Model confidence display
+      // Model confidence & stage probabilities display
       String confidenceStr = '';
       if (currentIdx < vp.stagesConfidence.length) {
         final conf = vp.stagesConfidence[currentIdx];
         if (conf != null) {
           confidenceStr =
               '  |  Confidence: ${(conf * 100).toStringAsFixed(1)}%';
+        }
+      }
+
+      String probsStr = '';
+      if (currentIdx < vp.stageProbabilities.length) {
+        final probs = vp.stageProbabilities[currentIdx];
+        if (probs.isNotEmpty) {
+          final w = (((probs[SleepStage.wake] ?? 0.0) * 100)).toStringAsFixed(0);
+          final n1 = (((probs[SleepStage.n1] ?? 0.0) * 100)).toStringAsFixed(0);
+          final n2 = (((probs[SleepStage.n2] ?? 0.0) * 100)).toStringAsFixed(0);
+          final n3 = (((probs[SleepStage.n3] ?? 0.0) * 100)).toStringAsFixed(0);
+          final r = (((probs[SleepStage.rem] ?? 0.0) * 100)).toStringAsFixed(0);
+          probsStr = '  |  P: W $w% · N1 $n1% · N2 $n2% · N3 $n3% · R $r%';
         }
       }
 
@@ -5967,7 +6284,7 @@ class _StatusBar extends StatelessWidget {
               ),
             TextSpan(
               text:
-                  'Epoch ${currentIdx + 1}/${vp.epochCount}  |  Current: ${currentStage.label}$uncertainStr$comparisonStr$confidenceStr$selectionStr  |  ${vp.sampleRateHz.toStringAsFixed(0)} Hz',
+                  'Epoch ${currentIdx + 1}/${vp.epochCount}  |  Current: ${currentStage.label}$uncertainStr$comparisonStr$confidenceStr$probsStr$selectionStr  |  ${vp.sampleRateHz.toStringAsFixed(0)} Hz',
             ),
           ],
         ),
@@ -5990,17 +6307,21 @@ class _StatusBar extends StatelessWidget {
               style: const TextStyle(fontSize: 12),
             ),
           ),
-          if (activePath != null)
+          if (rightWidget != null) ...[
+            const SizedBox(width: 12),
+            rightWidget,
+          ],
+          if (activePath != null) ...[
+            const SizedBox(width: 12),
             Flexible(
               child: Text(
                 _basename(activePath!),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12),
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
               ),
             ),
-          const SizedBox(width: 12),
-          ?rightWidget,
+          ],
         ],
       ),
     );

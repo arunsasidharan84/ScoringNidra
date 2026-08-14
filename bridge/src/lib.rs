@@ -9,6 +9,7 @@ pub mod edf;
 pub mod nk;
 pub mod embla;
 pub mod esedb;
+pub mod vhdr;
 pub mod spectrogram;
 
 #[repr(C)]

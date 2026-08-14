@@ -928,6 +928,13 @@ class EegBackend {
         debugPrint('[EegBackend] sleep_eeg_load_embla lookup error: $e');
       }
       try {
+        _loadVhdr = library.lookupFunction<_LoadEdfNative, _LoadEdfDart>(
+          'sleep_eeg_load_vhdr',
+        );
+      } catch (e) {
+        debugPrint('[EegBackend] sleep_eeg_load_vhdr lookup error: $e');
+      }
+      try {
         _freeEdf = library.lookupFunction<_FreeEdfNative, _FreeEdfDart>(
           'sleep_eeg_free_edf',
         );
@@ -978,6 +985,7 @@ class EegBackend {
   _LoadEdfDart? _loadEdf;
   _LoadEdfDart? _loadNk;
   _LoadEdfDart? _loadEmbla;
+  _LoadEdfDart? _loadVhdr;
   _FreeEdfDart? _freeEdf;
   _LoadEsedbJsonDart? _loadEsedbJson;
   _FreeStringDart? _freeString;
@@ -1049,6 +1057,58 @@ class EegBackend {
     }
     final isNk = lower.endsWith('.eeg');
     final isEmbla = lower.endsWith('.ebm');
+    final isVhdr = lower.endsWith('.vhdr');
+
+    if (isVhdr) {
+      if (_loadVhdr == null) {
+        throw FormatException(
+          'Brain Products VHDR native library loader is not initialized.',
+        );
+      }
+      final pathPtr = path.toNativeUtf8();
+      try {
+        final edfPtr = _loadVhdr!(pathPtr, false);
+        if (edfPtr != nullptr) {
+          final edf = edfPtr.ref;
+          final channelLabels = <String>[];
+          final channelSamples = <List<double>>[];
+
+          for (var i = 0; i < edf.signalCount; i++) {
+            final sig = edf.signals[i];
+            channelLabels.add(sig.label.toDartString());
+
+            final count = sig.sampleCount;
+            final samples = Float64List(count);
+            samples.setAll(0, sig.samples.asTypedList(count));
+            channelSamples.add(samples);
+          }
+
+          final sampleRate = edf.sampleRateHz;
+          final durationSec = edf.durationSeconds;
+          _freeEdf?.call(edfPtr);
+
+          return LoadedEeg(
+            sampleRateHz: sampleRate,
+            channelLabels: channelLabels,
+            channelSamples: channelSamples,
+            recordingStartTime: null,
+            sourceDescription:
+                '${channelLabels.length} channels, ${sampleRate.toStringAsFixed(1)} Hz, ${(durationSec / 60).toStringAsFixed(1)} min (Brain Vision)',
+          );
+        } else {
+          throw FormatException(
+            'Native Brain Products VHDR parser returned null for $path. Data file may be missing or corrupt.',
+          );
+        }
+      } catch (e) {
+        if (e is FormatException) rethrow;
+        throw FormatException(
+          'Failed to load Brain Products VHDR recording ($path): $e',
+        );
+      } finally {
+        calloc.free(pathPtr);
+      }
+    }
 
     if (isNk) {
       if (_loadNk == null) {

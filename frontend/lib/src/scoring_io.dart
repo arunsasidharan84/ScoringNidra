@@ -1285,6 +1285,8 @@ Future<void> exportScoringDialog(
   String? activePath, {
   List<ScoredEvent> events = const [],
   List<bool>? stagesUncertain,
+  List<double?>? stagesConfidence,
+  List<Map<SleepStage, double>>? stageProbabilities,
   required void Function(String) onStatus,
 }) async {
   final ext = ['json', 'txt', 'csv', 'vis'];
@@ -1334,6 +1336,8 @@ Future<void> exportScoringDialog(
       activePath,
       events,
       stagesUncertain: stagesUncertain,
+      stagesConfidence: stagesConfidence,
+      stageProbabilities: stageProbabilities,
     );
     onStatus('Saved scoring to ${_basename(savePath)}');
   } catch (e) {
@@ -1350,6 +1354,7 @@ Future<void> _writeScoringFile(
   List<ScoredEvent> events, {
   List<bool>? stagesUncertain,
   List<double?>? stagesConfidence,
+  List<Map<SleepStage, double>>? stageProbabilities,
 }) async {
   switch (filetype) {
     case 'scoringhero':
@@ -1361,6 +1366,7 @@ Future<void> _writeScoringFile(
         events: events,
         stagesUncertain: stagesUncertain,
         stagesConfidence: stagesConfidence,
+        stageProbabilities: stageProbabilities,
       );
     case 'yasa':
       await _writeYasa(path, stages);
