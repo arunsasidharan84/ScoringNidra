@@ -7,6 +7,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -2396,8 +2397,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             final digit = markerLabel == 'Artifact'
                 ? 0
                 : int.parse(markerLabel.substring(1));
+            final label = digit == 0 ? 'Artifact' : 'MT-KCD';
             final key = digit == 0 ? 'A' : 'F$digit';
-            final label = digit == 0 ? 'Artifact' : 'Event $digit';
 
             final scoredEvents = <ScoredEvent>[...v.scoredEvents];
             for (final ev in finalEvents) {
@@ -2406,6 +2407,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                   digit: digit,
                   key: key,
                   label: label,
+                  type: 'MT-KCD',
+                  channel: settings['channel'] as String?,
                   startSec: ev.$1,
                   endSec: ev.$2,
                 ),
@@ -2543,8 +2546,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             final digit = markerLabel == 'Artifact'
                 ? 0
                 : int.parse(markerLabel.substring(1));
+            final label = digit == 0 ? 'Artifact' : 'MT-Spindle';
             final key = digit == 0 ? 'A' : 'F$digit';
-            final label = digit == 0 ? 'Artifact' : 'Event $digit';
 
             final scoredEvents = <ScoredEvent>[...v.scoredEvents];
             for (final ev in finalEvents) {
@@ -2553,6 +2556,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                   digit: digit,
                   key: key,
                   label: label,
+                  type: 'MT-Spindle',
+                  channel: settings['channel'] as String?,
                   startSec: ev.$1,
                   endSec: ev.$2,
                 ),
@@ -2590,6 +2595,140 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                   title: const Text('MT-Spindle Error'),
                   content: Text(
                     'An error occurred during spindle detection:\n\n$e',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+              );
+            }
+          }
+        },
+      ),
+    );
+  }
+
+  void _runAnalyseNidraDetection() {
+    final eeg = _loadedEeg;
+    final v = _viewport;
+    final path = _activePath;
+    if (eeg == null || v == null || path == null) {
+      _setStatus('Load an EEG recording first');
+      return;
+    }
+
+    final hasStages = v.stages.any((s) => s.isScored);
+
+    showDialog(
+      context: context,
+      builder: (_) => AnalyseNidraDetectionDialog(
+        channelLabels: _config.channels.isNotEmpty
+            ? _config.channels.map((c) => c.name).toList()
+            : eeg.channelLabels,
+        hasStages: hasStages,
+        onRun: (settings) async {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => const AlertDialog(
+              content: Row(
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(width: 20),
+                  Text('Running AnalyseNidra Spindle & Slow-Wave detection…'),
+                ],
+              ),
+            ),
+          );
+
+          try {
+            await autoSaveScoring(
+              path,
+              v.stages,
+              v.epochSeconds,
+              events: v.scoredEvents,
+              stagesUncertain: v.stagesUncertain,
+              stagesConfidence: v.stagesConfidence,
+              stageProbabilities: v.stageProbabilities,
+            );
+            final scoringPath = _analyseNidraScoringPath(path);
+
+            final executable = detectAnalyseNidraExecutable();
+            final channels = List<String>.from(settings['channels'] as List);
+            final references = List<String>.from(settings['references'] as List);
+            final detectSpindles = settings['detectSpindles'] as bool;
+            final detectSlowWaves = settings['detectSlowWaves'] as bool;
+
+            final job = _AnalyseNidraJob(
+              edfPath: path,
+              scoringPath: scoringPath,
+              mappedScoringPath: scoringPath,
+            );
+            final args = _analyseNidraArguments(
+              job,
+              channels,
+              references,
+              lightsOffSeconds: _config.lightsOffSeconds,
+              lightsOnSeconds: _config.lightsOnSeconds,
+            );
+
+            final result = await Process.run(executable, args);
+
+            if (mounted) Navigator.of(context).pop();
+
+            if (result.exitCode != 0) {
+              final err = result.stderr.toString();
+              throw Exception(
+                err.isNotEmpty
+                    ? err
+                    : 'AnalyseNidra exited with code ${result.exitCode}',
+              );
+            }
+
+            final newEvents = <ScoredEvent>[];
+            if (detectSpindles) {
+              final spindles = await loadAnalyseNidraSpindles(path);
+              newEvents.addAll(spindles);
+            }
+            if (detectSlowWaves) {
+              final slowWaves = await loadAnalyseNidraSlowWaves(path);
+              newEvents.addAll(slowWaves);
+            }
+
+            final merged = _mergeScoredEvents([...v.scoredEvents, ...newEvents]);
+
+            if (mounted) {
+              setState(() {
+                _viewport = v.copyWith(
+                  scoredEvents: merged,
+                  clearEventSelections: true,
+                );
+                _status =
+                    'AnalyseNidra detection completed: found ${newEvents.length} event(s)';
+              });
+
+              autoSaveScoring(
+                path,
+                _viewport!.stages,
+                _viewport!.epochSeconds,
+                events: _viewport!.scoredEvents,
+                stagesUncertain: _viewport!.stagesUncertain,
+                stagesConfidence: _viewport!.stagesConfidence,
+                stageProbabilities: _viewport!.stageProbabilities,
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              Navigator.of(context).pop();
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('AnalyseNidra Detection Error'),
+                  content: Text(
+                    'An error occurred during AnalyseNidra detection:\n\n$e',
                   ),
                   actions: [
                     TextButton(
@@ -3914,6 +4053,83 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
     }
   }
 
+  void _adjustChannelScale(int visibleIndex, double multiplier) {
+    final v = _viewport;
+    final eeg = _loadedEeg;
+    if (v == null || eeg == null) return;
+    final labels = v.signalChannelLabels;
+    if (visibleIndex < 0 || visibleIndex >= labels.length) return;
+    final label = labels[visibleIndex];
+
+    if (_config.channels.isEmpty) {
+      _config.channels = [
+        for (var i = 0; i < eeg.channelSamples.length; i++)
+          AppConfig.defaultChannelConfig(
+            eeg.channelLabels[i],
+            i,
+            eeg.channelSamples.length,
+          ),
+      ];
+    }
+
+    final chIdx = _config.channels.indexWhere((c) => c.name == label);
+    if (chIdx >= 0) {
+      final ch = _config.channels[chIdx];
+      final newScale = (ch.scalingFactor * multiplier).clamp(10.0, 1000.0);
+      ch.scalingFactor = newScale;
+      _previewDisplayConfig(_config);
+      _setStatus('${ch.name} scale: ${newScale.toStringAsFixed(0)}%');
+    }
+  }
+
+  void _setChannelScale(int visibleIndex, double newScale) {
+    final v = _viewport;
+    final eeg = _loadedEeg;
+    if (v == null || eeg == null) return;
+    final labels = v.signalChannelLabels;
+    if (visibleIndex < 0 || visibleIndex >= labels.length) return;
+    final label = labels[visibleIndex];
+
+    if (_config.channels.isEmpty) {
+      _config.channels = [
+        for (var i = 0; i < eeg.channelSamples.length; i++)
+          AppConfig.defaultChannelConfig(
+            eeg.channelLabels[i],
+            i,
+            eeg.channelSamples.length,
+          ),
+      ];
+    }
+
+    final chIdx = _config.channels.indexWhere((c) => c.name == label);
+    if (chIdx >= 0) {
+      final ch = _config.channels[chIdx];
+      ch.scalingFactor = newScale.clamp(10.0, 1000.0);
+      _previewDisplayConfig(_config);
+      _setStatus('${ch.name} scale: ${ch.scalingFactor.toStringAsFixed(0)}%');
+    }
+  }
+
+  void _applyScaleToAllChannels(double newScale) {
+    final eeg = _loadedEeg;
+    if (eeg == null) return;
+    if (_config.channels.isEmpty) {
+      _config.channels = [
+        for (var i = 0; i < eeg.channelSamples.length; i++)
+          AppConfig.defaultChannelConfig(
+            eeg.channelLabels[i],
+            i,
+            eeg.channelSamples.length,
+          ),
+      ];
+    }
+    for (final ch in _config.channels) {
+      ch.scalingFactor = newScale.clamp(10.0, 1000.0);
+    }
+    _previewDisplayConfig(_config);
+    _setStatus('All channels scale set to ${newScale.toStringAsFixed(0)}%');
+  }
+
   // ─── Platform menus ───────────────────────────────────────────────────────
 
   List<PlatformMenuItem> _platformMenus() {
@@ -4090,6 +4306,10 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
           PlatformMenuItem(
             label: 'Spindle Detection (MT-Spindle)  [Ctrl+Shift+S]',
             onSelected: _runSpindleDetection,
+          ),
+          PlatformMenuItem(
+            label: 'AnalyseNidra Detection (Spindles & Slow-Waves)…',
+            onSelected: _runAnalyseNidraDetection,
           ),
           PlatformMenuItem(
             label: 'Find similar epochs from current epoch…',
@@ -4398,6 +4618,12 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                 onPressed: _runSpindleDetection,
                 child: const Text(
                   'Spindle Detection (MT-Spindle) [Ctrl+Shift+S]',
+                ),
+              ),
+              MenuItemButton(
+                onPressed: _runAnalyseNidraDetection,
+                child: const Text(
+                  'AnalyseNidra Detection (Spindles & Slow-Waves)…',
                 ),
               ),
               MenuItemButton(
@@ -5503,6 +5729,10 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                                     onLightsMarkersChanged:
                                         _updateLightsMarkers,
                                     onOverlayChanged: _setHypnogramOverlayMode,
+                                    onChannelScaleAdjust: _adjustChannelScale,
+                                    onChannelScaleSet: _setChannelScale,
+                                    onChannelScaleApplyAll:
+                                        _applyScaleToAllChannels,
                                   ),
                                   if (_videoPanelVisible &&
                                       _videoController != null)
@@ -6153,6 +6383,9 @@ class _ScoringHeroSurface extends StatefulWidget {
     required this.onLightsMarkersChanged,
     this.comparisonStages,
     this.onOverlayChanged,
+    this.onChannelScaleAdjust,
+    this.onChannelScaleSet,
+    this.onChannelScaleApplyAll,
   });
 
   final EegViewport viewport;
@@ -6179,6 +6412,9 @@ class _ScoringHeroSurface extends StatefulWidget {
   onLightsMarkersChanged;
   final void Function(String overlayMode, [String? probabilityStage])?
   onOverlayChanged;
+  final void Function(int channelIndex, double multiplier)? onChannelScaleAdjust;
+  final void Function(int channelIndex, double newScale)? onChannelScaleSet;
+  final void Function(double newScale)? onChannelScaleApplyAll;
 
   @override
   State<_ScoringHeroSurface> createState() => _ScoringHeroSurfaceState();
@@ -6386,6 +6622,7 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
                         startEpoch: startEpoch,
                         endEpoch: endEpoch,
                         onLightsMarkersChanged: widget.onLightsMarkersChanged,
+                        onOverlayChanged: widget.onOverlayChanged,
                         onTapFraction: (fx) {
                           final visibleCount = endEpoch - startEpoch;
                           final epoch = (startEpoch + (fx * visibleCount).floor())
@@ -6451,32 +6688,67 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
             flex: 74,
             child: LayoutBuilder(
               builder: (context, constraints) {
-                return GestureDetector(
-                  onPanStart: (d) => _handlePanStart(d, constraints),
-                  onPanUpdate: (d) => _handlePanUpdate(d, constraints),
-                  onPanEnd: _handlePanEnd,
-                  onPanCancel: _handlePanCancel,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      _Panel(
-                        painter: TimelinePainter(widget.viewport),
-                        padding: EdgeInsets.zero,
-                      ),
-                      IgnorePointer(
-                        child: CustomPaint(
-                          painter: SelectionOverlayPainter(
-                            widget.viewport,
-                            activeDragStartSec: _dragStartSec,
-                            activeDragEndSec: _dragEndSec,
-                            activeDragChannel: _dragChannel,
-                            activeDragStartUv: _dragStartUv,
-                            activeDragEndUv: _dragEndUv,
+                final channelCount = widget.viewport.channelCount;
+                final channelHeight = channelCount > 0
+                    ? constraints.maxHeight / channelCount
+                    : 0.0;
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    GestureDetector(
+                      onPanStart: (d) {
+                        if (d.localPosition.dx >= _plotLeftPadding) {
+                          _handlePanStart(d, constraints);
+                        }
+                      },
+                      onPanUpdate: (d) {
+                        if (d.localPosition.dx >= _plotLeftPadding ||
+                            _dragStartSec != null) {
+                          _handlePanUpdate(d, constraints);
+                        }
+                      },
+                      onPanEnd: _handlePanEnd,
+                      onPanCancel: _handlePanCancel,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          _Panel(
+                            painter: TimelinePainter(
+                              widget.viewport,
+                              drawChannelLabels: false,
+                            ),
+                            padding: EdgeInsets.zero,
                           ),
+                          IgnorePointer(
+                            child: CustomPaint(
+                              painter: SelectionOverlayPainter(
+                                widget.viewport,
+                                activeDragStartSec: _dragStartSec,
+                                activeDragEndSec: _dragEndSec,
+                                activeDragChannel: _dragChannel,
+                                activeDragStartUv: _dragStartUv,
+                                activeDragEndUv: _dragEndUv,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (channelCount > 0 && channelHeight > 0)
+                      Positioned(
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: _plotLeftPadding - 18,
+                        child: _ElectrodeScaleColumn(
+                          viewport: widget.viewport,
+                          channelHeight: channelHeight,
+                          onAdjustScale: widget.onChannelScaleAdjust,
+                          onSetScale: widget.onChannelScaleSet,
+                          onApplyAll: widget.onChannelScaleApplyAll,
                         ),
                       ),
-                    ],
-                  ),
+                  ],
                 );
               },
             ),
@@ -6571,6 +6843,21 @@ class _StatusBar extends StatelessWidget {
         }
       }
 
+      final elapsedSec = (currentIdx * vp.epochSeconds).round();
+      final eh = (elapsedSec ~/ 3600).toString().padLeft(2, '0');
+      final em = ((elapsedSec % 3600) ~/ 60).toString().padLeft(2, '0');
+      final es = (elapsedSec % 60).toString().padLeft(2, '0');
+      final elapsedStr = '$eh:$em:$es';
+
+      String timeStr = 'Elapsed: $elapsedStr';
+      if (vp.recordingStartTime != null) {
+        final clockDt = vp.recordingStartTime!.add(Duration(seconds: elapsedSec));
+        final ch = clockDt.hour.toString().padLeft(2, '0');
+        final cm = clockDt.minute.toString().padLeft(2, '0');
+        final cs = clockDt.second.toString().padLeft(2, '0');
+        timeStr = 'Clock: $ch:$cm:$cs ($elapsedStr)';
+      }
+
       rightWidget = Text.rich(
         TextSpan(
           style: const TextStyle(fontSize: 12, color: Colors.black87),
@@ -6585,7 +6872,7 @@ class _StatusBar extends StatelessWidget {
               ),
             TextSpan(
               text:
-                  'Epoch ${currentIdx + 1}/${vp.epochCount}  |  Current: ${currentStage.label}$uncertainStr$comparisonStr$confidenceStr$probsStr$selectionStr  |  ${vp.sampleRateHz.toStringAsFixed(0)} Hz',
+                  '$timeStr  |  Epoch ${currentIdx + 1}/${vp.epochCount}  |  Current: ${currentStage.label}$uncertainStr$comparisonStr$confidenceStr$probsStr$selectionStr  |  ${vp.sampleRateHz.toStringAsFixed(0)} Hz',
             ),
           ],
         ),
@@ -6736,6 +7023,7 @@ class _HypnogramPainterPanel extends StatefulWidget {
     required this.startEpoch,
     required this.endEpoch,
     required this.onLightsMarkersChanged,
+    this.onOverlayChanged,
   });
 
   final EegViewport viewport;
@@ -6746,6 +7034,8 @@ class _HypnogramPainterPanel extends StatefulWidget {
   final int endEpoch;
   final void Function(double lightsOffSeconds, double lightsOnSeconds)
   onLightsMarkersChanged;
+  final void Function(String overlayMode, [String? probabilityStage])?
+  onOverlayChanged;
 
   @override
   State<_HypnogramPainterPanel> createState() => _HypnogramPainterPanelState();
@@ -6895,20 +7185,37 @@ class _HypnogramPainterPanelState extends State<_HypnogramPainterPanel> {
                 _dragLightsOn = null;
               });
             },
-            child: MouseRegion(
-              cursor: _draggingMarker == null
-                  ? SystemMouseCursors.click
-                  : SystemMouseCursors.resizeLeftRight,
-              child: ClipRect(
-                child: CustomPaint(
-                  painter: HypnogramPainter(
-                    _effectiveViewport,
-                    swaKernelSize: widget.swaKernelSize,
-                    comparisonStages: widget.comparisonStages,
-                    startEpoch: widget.startEpoch,
-                    endEpoch: widget.endEpoch,
-                  ),
-                  child: const SizedBox.expand(),
+            child: GestureDetector(
+              onSecondaryTapUp: (details) =>
+                  _showOverlayContextMenu(context, details.globalPosition),
+              child: MouseRegion(
+                cursor: _draggingMarker == null
+                    ? SystemMouseCursors.click
+                    : SystemMouseCursors.resizeLeftRight,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ClipRect(
+                      child: CustomPaint(
+                        painter: HypnogramPainter(
+                          _effectiveViewport,
+                          swaKernelSize: widget.swaKernelSize,
+                          comparisonStages: widget.comparisonStages,
+                          startEpoch: widget.startEpoch,
+                          endEpoch: widget.endEpoch,
+                        ),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                    Positioned(
+                      top: 4,
+                      right: 6,
+                      child: _HypnogramOverlayButton(
+                        viewport: widget.viewport,
+                        onOverlayChanged: widget.onOverlayChanged,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -6916,6 +7223,108 @@ class _HypnogramPainterPanelState extends State<_HypnogramPainterPanel> {
         ),
       ),
     );
+  }
+
+  void _showOverlayContextMenu(BuildContext context, Offset globalPos) {
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (overlay == null) return;
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(globalPos.dx, globalPos.dy, 0, 0),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        const PopupMenuItem(
+          value: 'SWA',
+          child: Row(
+            children: [
+              Icon(Icons.show_chart, size: 16, color: Colors.teal),
+              SizedBox(width: 8),
+              Text(
+                'SWA Trend (Slow-Wave Activity)',
+                style: TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: 'P_Wake',
+          child: Row(
+            children: [
+              Icon(Icons.brightness_5, size: 16, color: Colors.amber),
+              SizedBox(width: 8),
+              Text('Probability: Wake', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'P_N1',
+          child: Row(
+            children: [
+              Icon(Icons.bedtime_outlined, size: 16, color: Colors.lightBlue),
+              SizedBox(width: 8),
+              Text('Probability: N1', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'P_N2',
+          child: Row(
+            children: [
+              Icon(Icons.bedtime_outlined, size: 16, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Probability: N2', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'P_N3',
+          child: Row(
+            children: [
+              Icon(Icons.bedtime_outlined, size: 16, color: Colors.indigo),
+              SizedBox(width: 8),
+              Text(
+                'Probability: N3 (Deep Sleep)',
+                style: TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'P_REM',
+          child: Row(
+            children: [
+              Icon(Icons.remove_red_eye_outlined, size: 16, color: Colors.pink),
+              SizedBox(width: 8),
+              Text('Probability: REM', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: 'Off',
+          child: Row(
+            children: [
+              Icon(Icons.visibility_off_outlined, size: 16, color: Colors.grey),
+              SizedBox(width: 8),
+              Text('None / Off', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
+      ],
+    ).then((val) {
+      if (val == null) return;
+      if (val == 'SWA') {
+        widget.onOverlayChanged?.call('SWA');
+      } else if (val == 'Off') {
+        widget.onOverlayChanged?.call('Off');
+      } else if (val.startsWith('P_')) {
+        widget.onOverlayChanged?.call('Probability', val.substring(2));
+      }
+    });
   }
 }
 
@@ -6944,6 +7353,354 @@ class _HypnogramSlider extends StatelessWidget {
               min: 0,
               max: 100,
               onChanged: (v) => onChanged(v.round()),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HypnogramOverlayButton extends StatelessWidget {
+  const _HypnogramOverlayButton({
+    required this.viewport,
+    required this.onOverlayChanged,
+  });
+
+  final EegViewport viewport;
+  final void Function(String overlayMode, [String? probabilityStage])?
+  onOverlayChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = viewport.hypnogramOverlayMode;
+    final stage = viewport.hypnogramProbabilityStage;
+    final label = mode == 'Off'
+        ? 'Overlay: Off'
+        : (mode == 'Probability' ? 'P($stage)' : 'SWA');
+
+    return Container(
+      height: 20,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey.shade400, width: 0.8),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1A000000),
+            blurRadius: 2,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      child: PopupMenuButton<String>(
+        tooltip: 'Hypnogram Overlay (SWA / Stage Probability / Off)',
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              mode == 'Off'
+                  ? Icons.layers_clear_outlined
+                  : Icons.layers_outlined,
+              size: 11,
+              color: mode == 'Off' ? Colors.grey : Colors.indigo,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: mode == 'Off'
+                    ? Colors.grey.shade700
+                    : Colors.indigo.shade900,
+              ),
+            ),
+            const Icon(Icons.arrow_drop_down, size: 13, color: Colors.black54),
+          ],
+        ),
+        onSelected: (val) {
+          if (val == 'SWA') {
+            onOverlayChanged?.call('SWA');
+          } else if (val == 'Off') {
+            onOverlayChanged?.call('Off');
+          } else if (val.startsWith('P_')) {
+            onOverlayChanged?.call('Probability', val.substring(2));
+          }
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem(
+            value: 'SWA',
+            child: Row(
+              children: [
+                Icon(Icons.show_chart, size: 16, color: Colors.teal),
+                SizedBox(width: 8),
+                Text(
+                  'SWA Trend (Slow-Wave Activity)',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          const PopupMenuDivider(),
+          const PopupMenuItem(
+            value: 'P_Wake',
+            child: Row(
+              children: [
+                Icon(Icons.brightness_5, size: 16, color: Colors.amber),
+                SizedBox(width: 8),
+                Text('Probability: Wake', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+          const PopupMenuItem(
+            value: 'P_N1',
+            child: Row(
+              children: [
+                Icon(Icons.bedtime_outlined, size: 16, color: Colors.lightBlue),
+                SizedBox(width: 8),
+                Text('Probability: N1', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+          const PopupMenuItem(
+            value: 'P_N2',
+            child: Row(
+              children: [
+                Icon(Icons.bedtime_outlined, size: 16, color: Colors.blue),
+                SizedBox(width: 8),
+                Text('Probability: N2', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+          const PopupMenuItem(
+            value: 'P_N3',
+            child: Row(
+              children: [
+                Icon(Icons.bedtime_outlined, size: 16, color: Colors.indigo),
+                SizedBox(width: 8),
+                Text(
+                  'Probability: N3 (Deep Sleep)',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          const PopupMenuItem(
+            value: 'P_REM',
+            child: Row(
+              children: [
+                Icon(Icons.remove_red_eye_outlined, size: 16, color: Colors.pink),
+                SizedBox(width: 8),
+                Text('Probability: REM', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+          const PopupMenuDivider(),
+          const PopupMenuItem(
+            value: 'Off',
+            child: Row(
+              children: [
+                Icon(Icons.visibility_off_outlined, size: 16, color: Colors.grey),
+                SizedBox(width: 8),
+                Text('None / Off', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ElectrodeScaleColumn extends StatelessWidget {
+  const _ElectrodeScaleColumn({
+    required this.viewport,
+    required this.channelHeight,
+    required this.onAdjustScale,
+    required this.onSetScale,
+    required this.onApplyAll,
+  });
+
+  final EegViewport viewport;
+  final double channelHeight;
+  final void Function(int channelIndex, double multiplier)? onAdjustScale;
+  final void Function(int channelIndex, double newScale)? onSetScale;
+  final void Function(double newScale)? onApplyAll;
+
+  @override
+  Widget build(BuildContext context) {
+    final labels = viewport.signalChannelLabels;
+    final scales = viewport.signalChannelScales;
+    final count = labels.length;
+    if (count == 0 || channelHeight <= 0) return const SizedBox.shrink();
+
+    return Column(
+      children: [
+        for (var i = 0; i < count; i++)
+          SizedBox(
+            height: channelHeight,
+            child: _ChannelScaleTile(
+              channelIndex: i,
+              channelName: labels[i],
+              scalePercent: scales[i],
+              channelHeight: channelHeight,
+              onAdjustScale: onAdjustScale,
+              onSetScale: onSetScale,
+              onApplyAll: onApplyAll,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ChannelScaleTile extends StatefulWidget {
+  const _ChannelScaleTile({
+    required this.channelIndex,
+    required this.channelName,
+    required this.scalePercent,
+    required this.channelHeight,
+    required this.onAdjustScale,
+    required this.onSetScale,
+    required this.onApplyAll,
+  });
+
+  final int channelIndex;
+  final String channelName;
+  final double scalePercent;
+  final double channelHeight;
+  final void Function(int channelIndex, double multiplier)? onAdjustScale;
+  final void Function(int channelIndex, double newScale)? onSetScale;
+  final void Function(double newScale)? onApplyAll;
+
+  @override
+  State<_ChannelScaleTile> createState() => _ChannelScaleTileState();
+}
+
+class _ChannelScaleTileState extends State<_ChannelScaleTile> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scaleStr = '${widget.scalePercent.toStringAsFixed(0)}%';
+    final isCompact = widget.channelHeight < 28;
+
+    return Listener(
+      onPointerSignal: (event) {
+        if (event is PointerScrollEvent) {
+          if (event.scrollDelta.dy < 0) {
+            widget.onAdjustScale?.call(widget.channelIndex, 1.2);
+          } else if (event.scrollDelta.dy > 0) {
+            widget.onAdjustScale?.call(widget.channelIndex, 0.8);
+          }
+        }
+      },
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: Container(
+          padding: const EdgeInsets.only(left: 4, right: 2),
+          alignment: Alignment.centerLeft,
+          decoration: BoxDecoration(
+            color: _hovered ? Colors.blue.withOpacity(0.08) : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.channelName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: isCompact ? 10 : 11,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+              _buildScaleControls(scaleStr, isCompact),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScaleControls(String scaleStr, bool isCompact) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: () => widget.onAdjustScale?.call(widget.channelIndex, 0.8),
+          borderRadius: BorderRadius.circular(2),
+          child: Padding(
+            padding: const EdgeInsets.all(1),
+            child: Icon(
+              Icons.remove,
+              size: isCompact ? 10 : 12,
+              color: Colors.blueGrey.shade700,
+            ),
+          ),
+        ),
+        PopupMenuButton<double>(
+          tooltip: 'Scale: $scaleStr (Click for presets)',
+          padding: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 1),
+            child: Text(
+              scaleStr,
+              style: TextStyle(
+                fontSize: isCompact ? 8.5 : 9.5,
+                fontWeight: FontWeight.w600,
+                color: widget.scalePercent == 100.0
+                    ? Colors.black54
+                    : Colors.blue.shade800,
+              ),
+            ),
+          ),
+          onSelected: (val) {
+            if (val == -1.0) {
+              widget.onApplyAll?.call(widget.scalePercent);
+            } else if (val == -2.0) {
+              widget.onApplyAll?.call(100.0);
+            } else {
+              widget.onSetScale?.call(widget.channelIndex, val);
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 50.0, child: Text('50% (Zoom Out)')),
+            const PopupMenuItem(value: 75.0, child: Text('75%')),
+            const PopupMenuItem(
+              value: 100.0,
+              child: Text('100% (Reset Default)'),
+            ),
+            const PopupMenuItem(value: 125.0, child: Text('125%')),
+            const PopupMenuItem(value: 150.0, child: Text('150% (Zoom In)')),
+            const PopupMenuItem(value: 200.0, child: Text('200%')),
+            const PopupMenuItem(value: 300.0, child: Text('300%')),
+            const PopupMenuDivider(),
+            PopupMenuItem(
+              value: -1.0,
+              child: Text('Apply $scaleStr to All Channels'),
+            ),
+            const PopupMenuItem(
+              value: -2.0,
+              child: Text('Reset All Channels to 100%'),
+            ),
+          ],
+        ),
+        InkWell(
+          onTap: () => widget.onAdjustScale?.call(widget.channelIndex, 1.25),
+          borderRadius: BorderRadius.circular(2),
+          child: Padding(
+            padding: const EdgeInsets.all(1),
+            child: Icon(
+              Icons.add,
+              size: isCompact ? 10 : 12,
+              color: Colors.blueGrey.shade700,
             ),
           ),
         ),

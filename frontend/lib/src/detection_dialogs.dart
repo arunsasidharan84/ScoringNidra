@@ -410,10 +410,10 @@ class _MtSpindleDialogState extends State<MtSpindleDialog> {
   // Detection parameters
   double _fmin = 11.0;
   double _fmax = 16.0;
-  double _amin = 10.0;
+  double _amin = 6.0;
   double _dmin = 0.5;
   double _dmax = 2.0;
-  int _q = 95;
+  int _q = 90;
 
   // Stage filtering
   bool _useStageFilter = false;
@@ -561,7 +561,7 @@ class _MtSpindleDialogState extends State<MtSpindleDialog> {
                         value: _amin,
                         suffix: ' µV',
                         tooltip:
-                            'Minimum peak envelope amplitude of the filtered sigma-band signal (default 10 µV).',
+                            'Minimum peak amplitude of the filtered sigma-band signal (default 6 µV).',
                         onChanged: (v) => setState(() => _amin = v),
                       ),
                       const SizedBox(height: 10),
@@ -588,7 +588,7 @@ class _MtSpindleDialogState extends State<MtSpindleDialog> {
                         value: _q,
                         suffix: ' %',
                         tooltip:
-                            'Percentile threshold for candidate-region identification (default 95%).',
+                            'Percentile threshold for candidate-region identification (default 90%).',
                         onChanged: (v) => setState(() => _q = v),
                       ),
                     ],
@@ -800,6 +800,242 @@ class _MtSpindleDialogState extends State<MtSpindleDialog> {
               if (val != null) onChanged(val);
             },
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class AnalyseNidraDetectionDialog extends StatefulWidget {
+  const AnalyseNidraDetectionDialog({
+    super.key,
+    required this.channelLabels,
+    required this.hasStages,
+    required this.onRun,
+  });
+
+  final List<String> channelLabels;
+  final bool hasStages;
+  final ValueChanged<Map<String, dynamic>> onRun;
+
+  @override
+  State<AnalyseNidraDetectionDialog> createState() =>
+      _AnalyseNidraDetectionDialogState();
+}
+
+class _AnalyseNidraDetectionDialogState
+    extends State<AnalyseNidraDetectionDialog> {
+  late final Set<String> _selectedChannels;
+  String _selectedReference = 'None';
+  bool _detectSpindles = true;
+  bool _detectSlowWaves = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedChannels = <String>{};
+    for (final label in widget.channelLabels) {
+      final u = label.toUpperCase();
+      if (u.contains('C3') ||
+          u.contains('C4') ||
+          u.contains('F3') ||
+          u.contains('F4') ||
+          u.contains('CZ') ||
+          u.contains('FZ') ||
+          u.contains('O1') ||
+          u.contains('O2')) {
+        _selectedChannels.add(label);
+      }
+    }
+    if (_selectedChannels.isEmpty && widget.channelLabels.isNotEmpty) {
+      _selectedChannels.addAll(widget.channelLabels.take(4));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final refOptions = ['None', ...widget.channelLabels];
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.analytics_outlined, color: Colors.indigo),
+          SizedBox(width: 8),
+          Text('AnalyseNidra Spindle & Slow-Wave Detection'),
+        ],
+      ),
+      content: SizedBox(
+        width: 540,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Select Channels for Detection',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  ActionChip(
+                    label: const Text('Select All', style: TextStyle(fontSize: 11)),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () {
+                      setState(() {
+                        _selectedChannels.addAll(widget.channelLabels);
+                      });
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    label: const Text('Clear All', style: TextStyle(fontSize: 11)),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () {
+                      setState(() {
+                        _selectedChannels.clear();
+                      });
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                constraints: const BoxConstraints(maxHeight: 150),
+                child: ListView(
+                  shrinkWrap: true,
+                  children: widget.channelLabels.map((ch) {
+                    final selected = _selectedChannels.contains(ch);
+                    return CheckboxListTile(
+                      dense: true,
+                      visualDensity: VisualDensity.compact,
+                      title: Text(ch, style: const TextStyle(fontSize: 12)),
+                      value: selected,
+                      onChanged: (val) {
+                        setState(() {
+                          if (val == true) {
+                            _selectedChannels.add(ch);
+                          } else {
+                            _selectedChannels.remove(ch);
+                          }
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Reference Channel (Optional)',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<String>(
+                value: refOptions.contains(_selectedReference)
+                    ? _selectedReference
+                    : 'None',
+                decoration: const InputDecoration(
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                ),
+                items: refOptions.map((ch) {
+                  return DropdownMenuItem(
+                    value: ch,
+                    child: Text(ch, style: const TextStyle(fontSize: 13)),
+                  );
+                }).toList(),
+                onChanged: (v) {
+                  if (v != null) setState(() => _selectedReference = v);
+                },
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Event Types to Detect',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              const SizedBox(height: 4),
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Detect Spindles (AnalyseNidra)', style: TextStyle(fontSize: 13)),
+                subtitle: const Text(
+                  'MNE relative sigma power & duration filters (marked as Indigo [8])',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+                value: _detectSpindles,
+                onChanged: (v) => setState(() => _detectSpindles = v ?? false),
+              ),
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Detect Slow Waves (AnalyseNidra)', style: TextStyle(fontSize: 13)),
+                subtitle: const Text(
+                  'Zero-crossing negative/positive peak detection & PTP (marked as Pink [7])',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+                value: _detectSlowWaves,
+                onChanged: (v) => setState(() => _detectSlowWaves = v ?? false),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.info_outline, size: 16, color: Colors.indigo),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        widget.hasStages
+                            ? 'Detections will be computed on NREM sleep epochs and saved to both JSON sidecars and your active markers.'
+                            : 'Notice: AnalyseNidra runs optimal spindle and slow-wave detection on scored N2/N3 epochs.',
+                        style: TextStyle(fontSize: 11, color: Colors.indigo.shade900),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            if (_selectedChannels.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Please select at least one EEG channel.')),
+              );
+              return;
+            }
+            if (!_detectSpindles && !_detectSlowWaves) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Please select at least one event type to detect.')),
+              );
+              return;
+            }
+            final refs = _selectedReference == 'None' ? <String>[] : [_selectedReference];
+            widget.onRun({
+              'channels': _selectedChannels.toList(),
+              'references': refs,
+              'detectSpindles': _detectSpindles,
+              'detectSlowWaves': _detectSlowWaves,
+            });
+            Navigator.of(context).pop();
+          },
+          child: const Text('Run Detection'),
         ),
       ],
     );

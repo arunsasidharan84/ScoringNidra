@@ -690,7 +690,7 @@ class AppConfig {
     );
   }
 
-  static ChannelConfig _defaultChannelConfig(
+  static ChannelConfig defaultChannelConfig(
     String name,
     int index,
     int channelCount,
@@ -715,6 +715,13 @@ class AppConfig {
       displayOnScreen: display,
     );
   }
+
+  static ChannelConfig _defaultChannelConfig(
+    String name,
+    int index,
+    int channelCount,
+  ) =>
+      defaultChannelConfig(name, index, channelCount);
 
   void bindLoadedChannels(List<String> loadedLabels, {double? sampleRateHz}) {
     if (channels.isEmpty) {
@@ -1633,6 +1640,7 @@ class EegBackend {
       visibleChannelLabels: visibleChannels.labels,
       visibleChannelSourceIndices: visibleChannels.indices,
       visibleChannelColors: visibleChannels.colors,
+      visibleChannelScales: visibleChannels.scales,
       tfDisplayMode: cfg.tfDisplayMode,
       tfPowerMin: tfLimits.min,
       tfPowerMax: tfLimits.max,
@@ -1770,6 +1778,7 @@ class EegBackend {
       visibleChannelLabels: visibleChannels.labels,
       visibleChannelSourceIndices: visibleChannels.indices,
       visibleChannelColors: visibleChannels.colors,
+      visibleChannelScales: visibleChannels.scales,
       clearSelection: true, // clear any selection when moving epoch
       clearEventSelections: old.currentEpoch != safeEpoch,
       tfDisplayMode: cfg.tfDisplayMode,
@@ -1915,6 +1924,7 @@ class EegBackend {
       visibleChannelLabels: visibleChannels.labels,
       visibleChannelSourceIndices: visibleChannels.indices,
       visibleChannelColors: visibleChannels.colors,
+      visibleChannelScales: visibleChannels.scales,
       clearSelection: true,
       clearEventSelections: old.currentEpoch != safeEpoch,
       tfDisplayMode: cfg.tfDisplayMode,
@@ -2601,12 +2611,14 @@ class EegBackend {
     List<int> indices,
     List<String> labels,
     List<String> colors,
+    List<double> scales,
     List<ChannelConfig> configs,
   })
   _visibleChannelProjection(LoadedEeg eeg, AppConfig cfg) {
     final indices = <int>[];
     final labels = <String>[];
     final colors = <String>[];
+    final scales = <double>[];
     final configs = <ChannelConfig>[];
     final channelConfigs = cfg.channels.isEmpty
         ? [
@@ -2640,6 +2652,7 @@ class EegBackend {
             ? channelCfg.color
             : _defaultChannelColorName(eeg.channelLabels[sourceIdx]),
       );
+      scales.add(channelCfg.scalingFactor);
       configs.add(channelCfg);
     }
     if (indices.isEmpty && eeg.channelSamples.isNotEmpty) {
@@ -2655,9 +2668,16 @@ class EegBackend {
         fallback.name.isNotEmpty ? fallback.name : eeg.channelLabels.first,
       );
       colors.add(fallback.color);
+      scales.add(fallback.scalingFactor);
       configs.add(fallback);
     }
-    return (indices: indices, labels: labels, colors: colors, configs: configs);
+    return (
+      indices: indices,
+      labels: labels,
+      colors: colors,
+      scales: scales,
+      configs: configs,
+    );
   }
 
   ChannelConfig _configForRawChannel(

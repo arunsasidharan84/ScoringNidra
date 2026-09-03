@@ -81,6 +81,22 @@ Future<List<ScoredEvent>> tryLoadAllMarkers(
     }
   } catch (_) {}
 
+  // 7. Companion AnalyseNidra Spindles
+  try {
+    final anSpindles = await loadAnalyseNidraSpindles(activePath);
+    for (final ev in anSpindles) {
+      addEvent(ev);
+    }
+  } catch (_) {}
+
+  // 8. Companion AnalyseNidra Slow-Waves
+  try {
+    final anSlowWaves = await loadAnalyseNidraSlowWaves(activePath);
+    for (final ev in anSlowWaves) {
+      addEvent(ev);
+    }
+  } catch (_) {}
+
   // Assign coherent digits (color indexing 0-9) to event labels
   return _assignEventDigits(allEvents);
 }
@@ -641,6 +657,100 @@ Future<List<ScoredEvent>> _loadTabularEvents(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 7. AnalyseNidra Spindles & Slow-Waves
+// ─────────────────────────────────────────────────────────────────────────────
+
+Future<List<ScoredEvent>> loadAnalyseNidraSpindles(String activePath) async {
+  final dotIdx = activePath.lastIndexOf('.');
+  final base = dotIdx >= 0 ? activePath.substring(0, dotIdx) : activePath;
+  final candidates = [
+    '${base}_analyse_spindles.json',
+    '$base.spindles.json',
+    '${base}_spindles.json',
+  ];
+  for (final path in candidates) {
+    final file = File(path);
+    if (!file.existsSync()) continue;
+    try {
+      final content = await file.readAsString();
+      final dynamic json = jsonDecode(content);
+      final List<dynamic>? events = json is Map
+          ? (json['Events'] as List<dynamic>? ?? json['events'] as List<dynamic>?)
+          : (json is List ? json : null);
+      if (events == null) continue;
+      final result = <ScoredEvent>[];
+      for (final item in events) {
+        if (item is! Map) continue;
+        final start = (item['Start'] as num? ?? item['start'] as num?)?.toDouble() ?? 0.0;
+        final end = (item['End'] as num? ?? item['end'] as num?)?.toDouble() ?? 0.0;
+        final ch = (item['Channel'] ?? item['channel'])?.toString();
+        final freq = (item['Frequency'] as num? ?? item['frequency'] as num?)?.toDouble();
+        final freqStr = freq != null ? ' ${freq.toStringAsFixed(1)}Hz' : '';
+        final chStr = (ch != null && ch.isNotEmpty) ? ' ($ch$freqStr)' : freqStr;
+        result.add(
+          ScoredEvent(
+            digit: 8,
+            key: 'F8',
+            label: 'Spindle$chStr',
+            type: 'AnalyseNidra Spindle',
+            channel: ch,
+            startSec: start,
+            endSec: end > start ? end : start + 1.0,
+          ),
+        );
+      }
+      return result;
+    } catch (_) {}
+  }
+  return const [];
+}
+
+Future<List<ScoredEvent>> loadAnalyseNidraSlowWaves(String activePath) async {
+  final dotIdx = activePath.lastIndexOf('.');
+  final base = dotIdx >= 0 ? activePath.substring(0, dotIdx) : activePath;
+  final candidates = [
+    '${base}_analyse_slow_waves.json',
+    '$base.slow_waves.json',
+    '${base}_slow_waves.json',
+  ];
+  for (final path in candidates) {
+    final file = File(path);
+    if (!file.existsSync()) continue;
+    try {
+      final content = await file.readAsString();
+      final dynamic json = jsonDecode(content);
+      final List<dynamic>? events = json is Map
+          ? (json['Events'] as List<dynamic>? ?? json['events'] as List<dynamic>?)
+          : (json is List ? json : null);
+      if (events == null) continue;
+      final result = <ScoredEvent>[];
+      for (final item in events) {
+        if (item is! Map) continue;
+        final start = (item['Start'] as num? ?? item['start'] as num?)?.toDouble() ?? 0.0;
+        final end = (item['End'] as num? ?? item['end'] as num?)?.toDouble() ?? 0.0;
+        final ch = (item['Channel'] ?? item['channel'])?.toString();
+        final ptp = (item['PTP'] as num? ?? item['ptp'] as num?)?.toDouble();
+        final ptpStr = ptp != null ? ' ${ptp.toStringAsFixed(0)}µV' : '';
+        final chStr = (ch != null && ch.isNotEmpty) ? ' ($ch$ptpStr)' : ptpStr;
+        result.add(
+          ScoredEvent(
+            digit: 7,
+            key: 'F7',
+            label: 'SlowWave$chStr',
+            type: 'AnalyseNidra SlowWave',
+            channel: ch,
+            startSec: start,
+            endSec: end > start ? end : start + 1.0,
+          ),
+        );
+      }
+      return result;
+    } catch (_) {}
+  }
+  return const [];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Color Digit Assignment & Sort
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -653,11 +763,13 @@ List<ScoredEvent> _assignEventDigits(List<ScoredEvent> events) {
   return [
     for (final ev in events)
       ScoredEvent(
-        digit: labelToDigit.putIfAbsent(ev.label.toLowerCase(), () {
-          final d = nextDigit;
-          nextDigit = (nextDigit % 9) + 1;
-          return d;
-        }),
+        digit: (ev.type.startsWith('AnalyseNidra') || ev.type == 'MT-Spindle' || ev.type == 'MT-KCD')
+            ? ev.digit
+            : labelToDigit.putIfAbsent(ev.label.toLowerCase(), () {
+                final d = nextDigit;
+                nextDigit = (nextDigit % 9) + 1;
+                return d;
+              }),
         key: ev.key,
         label: ev.label,
         startSec: ev.startSec,

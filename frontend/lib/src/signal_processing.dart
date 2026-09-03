@@ -962,10 +962,13 @@ double percentile(Float64List values, double q) {
 }
 
 double ptp(Float64List x, int start, int end) {
-  if (start >= end) return 0.0;
-  double minVal = x[start];
-  double maxVal = x[start];
-  for (var i = start + 1; i <= end; i++) {
+  if (x.isEmpty) return 0.0;
+  final s = start.clamp(0, x.length - 1);
+  final e = end.clamp(0, x.length - 1);
+  if (s >= e) return 0.0;
+  double minVal = x[s];
+  double maxVal = x[s];
+  for (var i = s + 1; i <= e; i++) {
     final v = x[i];
     if (v < minVal) minVal = v;
     if (v > maxVal) maxVal = v;
@@ -1137,10 +1140,10 @@ List<(double, double)> detectSpindles(
   double sfreq, {
   double fmin = 11.0,
   double fmax = 16.0,
-  double amin = 10.0,
+  double amin = 6.0,
   double dmin_s = 0.5,
   double dmax_s = 2.0,
-  double q = 95.0,
+  double q = 90.0,
 }) {
   final N = signal.length;
   if (N < 8 || sfreq <= 0) return const [];
@@ -1220,7 +1223,9 @@ List<(double, double)> detectSpindles(
   if (regions.isEmpty) return const [];
 
   // 4. Sigma-band envelope via Hilbert transform
-  final xSigma = bandpassFilter(signal, sfreq, low: fmin, high: fmax, order: 4);
+  final xSigma = Float64List.fromList(
+    bandpassFilter(signal, sfreq, low: fmin, high: fmax, order: 4),
+  );
   final envelope = Float64List.fromList(hilbertEnvelope(xSigma));
   final envSmooth = _cma(envelope, Lsmth);
   final envBackg = _cma(envSmooth, Lbackg);
@@ -1253,29 +1258,49 @@ List<(double, double)> detectSpindles(
       if (diff[i] == -1) endsLocal.add(i);
     }
 
-    final minCount = math.min(startsLocal.length, endsLocal.length);
-    for (var i = 0; i < minCount; i++) {
-      final s = startsLocal[i];
-      final e = endsLocal[i];
+    for (final s in startsLocal) {
+      // Find the first corresponding end strictly greater than start
+      int? matchingEnd;
+      for (final e in endsLocal) {
+        if (e > s) {
+          matchingEnd = e;
+          break;
+        }
+      }
+      if (matchingEnd == null) continue;
+      final e = matchingEnd;
       final n1 = nStart + s;
       final n2 = nStart + e;
       final dur = n2 - n1;
 
-      double peak = 0.0;
-      if (n2 > n1) {
-        peak = envSmooth[n1];
-        for (var idx = n1 + 1; idx < n2; idx++) {
-          if (envSmooth[idx] > peak) peak = envSmooth[idx];
-        }
+      // Peak amplitude in sigma band (ptp or 2x envelope)
+      double peakEnv = 0.0;
+      for (var idx = n1; idx < n2; idx++) {
+        if (envelope[idx] > peakEnv) peakEnv = envelope[idx];
       }
+      final peakPtp = ptp(xSigma, n1, n2);
+      final peak = math.max(peakPtp, peakEnv * 2.0);
 
-      if (dur >= Dmin && dur < Dmax && peak >= amin) {
+      if (dur >= Dmin && dur <= Dmax && peak >= amin) {
         spindles.add((n1, n2));
       }
     }
   }
 
-  return spindles.map((s) => (s.$1 / sfreq, s.$2 / sfreq)).toList();
+  if (spindles.isEmpty) return const [];
+  spindles.sort((a, b) => a.$1.compareTo(b.$1));
+  final merged = <(int, int)>[spindles.first];
+  for (var i = 1; i < spindles.length; i++) {
+    final cur = spindles[i];
+    final last = merged.last;
+    if (cur.$1 <= last.$2) {
+      merged[merged.length - 1] = (last.$1, math.max(last.$2, cur.$2));
+    } else {
+      merged.add(cur);
+    }
+  }
+
+  return merged.map((s) => (s.$1 / sfreq, s.$2 / sfreq)).toList();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

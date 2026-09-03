@@ -1537,9 +1537,10 @@ class TimeFrequencyPainter extends CustomPainter {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class TimelinePainter extends CustomPainter {
-  TimelinePainter(this.viewport);
+  TimelinePainter(this.viewport, {this.drawChannelLabels = true});
 
   final EegViewport viewport;
+  final bool drawChannelLabels;
 
   // Channel colours matching Python SignalWidget defaults
   static const List<Color> channelColors = [
@@ -1566,7 +1567,9 @@ class TimelinePainter extends CustomPainter {
 
     _drawBackground(canvas, size, n);
     _drawChannels(canvas, size, points, n);
-    _drawChannelLabels(canvas, size, labels);
+    if (drawChannelLabels) {
+      _drawChannelLabels(canvas, size, labels);
+    }
     _drawAmplitudeLines(canvas, size, n, viewport.amplitudeRangeUv);
   }
 

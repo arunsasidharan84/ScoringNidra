@@ -264,6 +264,7 @@ class EegViewport {
     this.visibleChannelLabels = const [],
     this.visibleChannelSourceIndices = const [],
     this.visibleChannelColors = const [],
+    this.visibleChannelScales = const [],
     this.tfDisplayMode = 'dB (median baseline)',
     this.tfPowerMin = 0.0,
     this.tfPowerMax = 20.0,
@@ -373,6 +374,7 @@ class EegViewport {
   final List<String> visibleChannelLabels;
   final List<int> visibleChannelSourceIndices;
   final List<String> visibleChannelColors;
+  final List<double> visibleChannelScales;
 
   int get epochCount => stages.length;
   List<String> get signalChannelLabels =>
@@ -384,6 +386,9 @@ class EegViewport {
   List<String> get signalChannelColors => visibleChannelColors.isNotEmpty
       ? visibleChannelColors
       : [for (var i = 0; i < signalChannelLabels.length; i++) 'Black'];
+  List<double> get signalChannelScales => visibleChannelScales.isNotEmpty
+      ? visibleChannelScales
+      : [for (var i = 0; i < signalChannelLabels.length; i++) 100.0];
   int get channelCount => signalChannelLabels.length;
 
   SleepStage get currentStage =>
@@ -418,6 +423,7 @@ class EegViewport {
     List<String>? visibleChannelLabels,
     List<int>? visibleChannelSourceIndices,
     List<String>? visibleChannelColors,
+    List<double>? visibleChannelScales,
     bool clearSelection = false,
     bool clearEventSelections = false,
     String? tfDisplayMode,
@@ -525,6 +531,7 @@ class EegViewport {
       visibleChannelSourceIndices:
           visibleChannelSourceIndices ?? this.visibleChannelSourceIndices,
       visibleChannelColors: visibleChannelColors ?? this.visibleChannelColors,
+      visibleChannelScales: visibleChannelScales ?? this.visibleChannelScales,
       tfDisplayMode: tfDisplayMode ?? this.tfDisplayMode,
       tfPowerMin: tfPowerMin ?? this.tfPowerMin,
       tfPowerMax: tfPowerMax ?? this.tfPowerMax,
