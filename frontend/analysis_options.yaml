@@ -23,6 +23,7 @@ analyzer:
     non_constant_identifier_names: ignore
     constant_identifier_names: ignore
     avoid_print: ignore
+    unused_import: ignore
 
 
 
