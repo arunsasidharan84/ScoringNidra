@@ -5733,6 +5733,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                                     onChannelScaleSet: _setChannelScale,
                                     onChannelScaleApplyAll:
                                         _applyScaleToAllChannels,
+                                    onTimeUnitChanged: _setEegPanelTimeUnit,
                                   ),
                                   if (_videoPanelVisible &&
                                       _videoController != null)
@@ -5770,6 +5771,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                         activePath: _activePath,
                         viewport: viewport,
                         comparisonStages: _comparisonStages,
+                        onTimeUnitChanged: _setEegPanelTimeUnit,
                       ),
                     ],
                   ),
@@ -5818,6 +5820,23 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
               probabilityStage ?? _config.hypnogramProbabilityStage,
         );
       }
+    });
+    if (_activePath != null) {
+      unawaited(saveAutoConfig(_activePath!, _config));
+    }
+  }
+
+  void _setEegPanelTimeUnit(String newUnit) {
+    if (_config.eegPanelTimeUnit == newUnit &&
+        _viewport?.eegPanelTimeUnit == newUnit) {
+      return;
+    }
+    setState(() {
+      _config.eegPanelTimeUnit = newUnit;
+      if (_viewport != null) {
+        _viewport = _viewport!.copyWith(eegPanelTimeUnit: newUnit);
+      }
+      _status = 'Hypnogram & status bar time unit set to $newUnit';
     });
     if (_activePath != null) {
       unawaited(saveAutoConfig(_activePath!, _config));
@@ -6386,6 +6405,7 @@ class _ScoringHeroSurface extends StatefulWidget {
     this.onChannelScaleAdjust,
     this.onChannelScaleSet,
     this.onChannelScaleApplyAll,
+    this.onTimeUnitChanged,
   });
 
   final EegViewport viewport;
@@ -6415,6 +6435,7 @@ class _ScoringHeroSurface extends StatefulWidget {
   final void Function(int channelIndex, double multiplier)? onChannelScaleAdjust;
   final void Function(int channelIndex, double newScale)? onChannelScaleSet;
   final void Function(double newScale)? onChannelScaleApplyAll;
+  final ValueChanged<String>? onTimeUnitChanged;
 
   @override
   State<_ScoringHeroSurface> createState() => _ScoringHeroSurfaceState();
@@ -6623,6 +6644,7 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
                         endEpoch: endEpoch,
                         onLightsMarkersChanged: widget.onLightsMarkersChanged,
                         onOverlayChanged: widget.onOverlayChanged,
+                        onTimeUnitChanged: widget.onTimeUnitChanged,
                         onTapFraction: (fx) {
                           final visibleCount = endEpoch - startEpoch;
                           final epoch = (startEpoch + (fx * visibleCount).floor())
@@ -6776,12 +6798,14 @@ class _StatusBar extends StatelessWidget {
     required this.activePath,
     required this.viewport,
     this.comparisonStages,
+    this.onTimeUnitChanged,
   });
 
   final String status;
   final String? activePath;
   final EegViewport? viewport;
   final List<SleepStage>? comparisonStages;
+  final ValueChanged<String>? onTimeUnitChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -6847,35 +6871,121 @@ class _StatusBar extends StatelessWidget {
       final eh = (elapsedSec ~/ 3600).toString().padLeft(2, '0');
       final em = ((elapsedSec % 3600) ~/ 60).toString().padLeft(2, '0');
       final es = (elapsedSec % 60).toString().padLeft(2, '0');
-      final elapsedStr = '$eh:$em:$es';
+      final elapsedHms = '$eh:$em:$es';
 
-      String timeStr = 'Elapsed: $elapsedStr';
-      if (vp.recordingStartTime != null) {
-        final clockDt = vp.recordingStartTime!.add(Duration(seconds: elapsedSec));
-        final ch = clockDt.hour.toString().padLeft(2, '0');
-        final cm = clockDt.minute.toString().padLeft(2, '0');
-        final cs = clockDt.second.toString().padLeft(2, '0');
-        timeStr = 'Clock: $ch:$cm:$cs ($elapsedStr)';
+      final unit = vp.eegPanelTimeUnit;
+      String timeStr;
+      if (unit == 'Clock time') {
+        if (vp.recordingStartTime != null) {
+          final clockDt =
+              vp.recordingStartTime!.add(Duration(seconds: elapsedSec));
+          final ch = clockDt.hour.toString().padLeft(2, '0');
+          final cm = clockDt.minute.toString().padLeft(2, '0');
+          final cs = clockDt.second.toString().padLeft(2, '0');
+          timeStr = 'Clock: $ch:$cm:$cs';
+        } else {
+          timeStr = 'Elapsed: $elapsedHms';
+        }
+      } else if (unit == 'Seconds') {
+        timeStr = 'Elapsed: ${elapsedSec}s';
+      } else if (unit == 'Minutes') {
+        timeStr = 'Elapsed: ${(elapsedSec / 60.0).toStringAsFixed(1)} min';
+      } else if (unit == 'Hours') {
+        final h = elapsedSec ~/ 3600;
+        final m = ((elapsedSec % 3600) / 60).round();
+        timeStr = m == 0 ? 'Elapsed: ${h}h' : 'Elapsed: ${h}h ${m}m';
+      } else {
+        timeStr = 'Elapsed: $elapsedHms';
       }
 
-      rightWidget = Text.rich(
-        TextSpan(
-          style: const TextStyle(fontSize: 12, color: Colors.black87),
-          children: [
-            if (isInconsistent)
-              const TextSpan(
-                text: '[INCONSISTENT]  ',
-                style: TextStyle(
-                  color: Colors.red,
-                  fontWeight: FontWeight.bold,
+      final timeWidget = onTimeUnitChanged != null
+          ? PopupMenuButton<String>(
+              tooltip: 'Time format: $unit (Click to switch time format)',
+              padding: EdgeInsets.zero,
+              onSelected: onTimeUnitChanged,
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'Clock time',
+                  child: Row(
+                    children: [
+                      Icon(Icons.access_time, size: 16, color: Colors.indigo),
+                      SizedBox(width: 8),
+                      Text('Clock time (HH:MM:SS)'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'Seconds',
+                  child: Row(
+                    children: [
+                      Icon(Icons.timer_outlined, size: 16, color: Colors.teal),
+                      SizedBox(width: 8),
+                      Text('Seconds (s)'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'Minutes',
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.timelapse_outlined,
+                        size: 16,
+                        color: Colors.blue,
+                      ),
+                      SizedBox(width: 8),
+                      Text('Minutes (min)'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'Hours',
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.schedule_outlined,
+                        size: 16,
+                        color: Colors.deepPurple,
+                      ),
+                      SizedBox(width: 8),
+                      Text('Hours (hr)'),
+                    ],
+                  ),
+                ),
+              ],
+              child: Text(
+                timeStr,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.black87,
+                  decoration: TextDecoration.underline,
+                  decorationStyle: TextDecorationStyle.dotted,
                 ),
               ),
-            TextSpan(
-              text:
-                  '$timeStr  |  Epoch ${currentIdx + 1}/${vp.epochCount}  |  Current: ${currentStage.label}$uncertainStr$comparisonStr$confidenceStr$probsStr$selectionStr  |  ${vp.sampleRateHz.toStringAsFixed(0)} Hz',
+            )
+          : Text(
+              timeStr,
+              style: const TextStyle(fontSize: 12, color: Colors.black87),
+            );
+
+      rightWidget = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isInconsistent)
+            const Text(
+              '[INCONSISTENT]  ',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.red,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-          ],
-        ),
+          timeWidget,
+          Text(
+            '  |  Epoch ${currentIdx + 1}/${vp.epochCount}  |  Current: ${currentStage.label}$uncertainStr$comparisonStr$confidenceStr$probsStr$selectionStr  |  ${vp.sampleRateHz.toStringAsFixed(0)} Hz',
+            style: const TextStyle(fontSize: 12, color: Colors.black87),
+          ),
+        ],
       );
     }
     return Container(
@@ -7024,6 +7134,7 @@ class _HypnogramPainterPanel extends StatefulWidget {
     required this.endEpoch,
     required this.onLightsMarkersChanged,
     this.onOverlayChanged,
+    this.onTimeUnitChanged,
   });
 
   final EegViewport viewport;
@@ -7036,6 +7147,7 @@ class _HypnogramPainterPanel extends StatefulWidget {
   onLightsMarkersChanged;
   final void Function(String overlayMode, [String? probabilityStage])?
   onOverlayChanged;
+  final ValueChanged<String>? onTimeUnitChanged;
 
   @override
   State<_HypnogramPainterPanel> createState() => _HypnogramPainterPanelState();
@@ -7314,6 +7426,47 @@ class _HypnogramPainterPanelState extends State<_HypnogramPainterPanel> {
             ],
           ),
         ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: 'U_Clock time',
+          child: Row(
+            children: [
+              Icon(Icons.access_time, size: 16, color: Colors.indigo),
+              SizedBox(width: 8),
+              Text('Time Unit: Clock time', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'U_Seconds',
+          child: Row(
+            children: [
+              Icon(Icons.timer_outlined, size: 16, color: Colors.teal),
+              SizedBox(width: 8),
+              Text('Time Unit: Seconds', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'U_Minutes',
+          child: Row(
+            children: [
+              Icon(Icons.timelapse_outlined, size: 16, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Time Unit: Minutes', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'U_Hours',
+          child: Row(
+            children: [
+              Icon(Icons.schedule_outlined, size: 16, color: Colors.deepPurple),
+              SizedBox(width: 8),
+              Text('Time Unit: Hours', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
       ],
     ).then((val) {
       if (val == null) return;
@@ -7323,6 +7476,8 @@ class _HypnogramPainterPanelState extends State<_HypnogramPainterPanel> {
         widget.onOverlayChanged?.call('Off');
       } else if (val.startsWith('P_')) {
         widget.onOverlayChanged?.call('Probability', val.substring(2));
+      } else if (val.startsWith('U_')) {
+        widget.onTimeUnitChanged?.call(val.substring(2));
       }
     });
   }
