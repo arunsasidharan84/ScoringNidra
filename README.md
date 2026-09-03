@@ -10,14 +10,35 @@
   <b>National Institute of Mental Health and Neurosciences (NIMHANS)</b>, Bangalore, India.
 </p>
 
-**Version:** 1.6.1
+**Version:** 1.7.0
 
 Welcome to **CCS Sleep Studio**, a high-performance, cross-platform desktop application designed to assist researchers and clinicians in sleep EEG visualization, event annotation, sleep scoring, automated staging, and advanced EEG analysis.
 
 CCS Sleep Studio is comprised of the following key modules:
-*   **ScoringNidra**: Interactive sleep scoring and event annotation module supporting EDF, Nihon Kohden (.EEG), EMBLA (.ebm), Orbit (.orb), and R09 (.r09).
+*   **ScoringNidra**: Interactive sleep scoring and event annotation module supporting EDF, Brain Products (.vhdr / .vmrk), Nihon Kohden (.EEG / .LOG), EMBLA (.ebm), Orbit (.orb), and R09 (.r09).
 *   **AutoscoreNidra**: Automated sleep scoring module with both interactive and batch modes.
 *   **AnalyseNidra**: Automated sleep EEG analysis and reporting module operating in both interactive and batch modes.
+
+### 🌟 New in Version 1.7.0
+*   **Universal Markers & Annotations Support**:
+    *   Direct decoding of embedded **EDF+ TAL** (Time-stamped Annotation Lists).
+    *   Native parsing of **Brain Products / BrainVision (`.vmrk`)** marker files.
+    *   Parsing of **Nihon Kohden (`.LOG` / `.log`)** clinical event notes and timestamps.
+    *   Support for **Compumedics Profusion / Alice XML (`.xml`)** scored event lists.
+    *   Header-adaptive parsing of tabular **CSV / TSV / TXT** marker files (`${stem}_events.csv`).
+    *   Crisp canvas rendering distinguishing point markers (vertical lines + top pill badge) and interval spans (shaded boxes + top pill badge).
+    *   Interactive **Markers & Annotations Manager Dialog (`M`)** with category filter chips, search, click-to-jump navigation, and CSV export.
+*   **Time-Synchronized Video Playback (`V`)**:
+    *   Cross-platform video playback supporting MP4, MKV, AVI, MOV, and WebM on macOS and Windows.
+    *   Automatic detection of companion video files in the recording directory.
+    *   Bidirectional synchronization: epoch jumping immediately seeks the video, and playing video advances the EEG viewport.
+    *   Floating control overlay with fine-grained sync offset adjustments (`-1s`, `-0.1s`, `+0.1s`, `+1s`, manual entry, and reset).
+*   **Brain Products (`.vhdr` / `.vmrk`) Integration**:
+    *   Native loading and channel scaling for Brain Products recordings in both interactive viewer and batch modes.
+*   **Enhanced Navigation & Confidence Display**:
+    *   Hypnogram overlay dropdown directly on the toolbar (SWA, P(Wake), P(N1), P(N2), P(N3), P(REM), Off).
+    *   Context-aware "out-of" navigation readout (`/ 765`, `/ 06:22:30`, `/ 05:22:30`) matching Epoch, Elapsed, and Clock jump modes.
+    *   Multi-stage probability display on the status bar showing confidence scores across all competing stages.
 
 ### 🌟 New in Version 1.6.0
 *   **Nihon Kohden (.EEG) Support**: Native reading of multi-block Nihon Kohden recordings, active channel filtering (<70 channels), and complete extraction of multi-hour (>6h to 36h+) continuous PSG payload data.

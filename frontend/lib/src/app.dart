@@ -17,11 +17,15 @@ import 'detection_dialogs.dart';
 import 'edf_utilities_dialog.dart';
 import 'eeg_backend.dart';
 import 'models.dart';
+import 'marker_io.dart';
+import 'markers_dialog.dart';
 import 'publication_sleep_report.dart';
 import 'regional_csv.dart';
 import 'scoring_io.dart';
 import 'signal_processing.dart' as sp;
+import 'synced_video_panel.dart';
 import 'timeline_painter.dart';
+import 'package:video_player/video_player.dart';
 
 const double _plotLeftPadding = 90.0;
 const bool buildLite = bool.fromEnvironment('LITE_BUILD', defaultValue: false);
@@ -101,6 +105,14 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
       TextEditingController(text: '_scoring');
   List<String> _lastAnalyseRegionalFiles = const [];
 
+  // Video Sync State
+  String? _videoPath;
+  VideoPlayerController? _videoController;
+  bool _videoPanelVisible = false;
+  double _videoOffsetSeconds = 0.0;
+  bool _isVideoPlaying = false;
+  Timer? _videoSyncTimer;
+
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
   @override
@@ -129,6 +141,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
 
   @override
   void dispose() {
+    _videoSyncTimer?.cancel();
+    _videoController?.dispose();
     FocusManager.instance.removeListener(_handlePrimaryFocusChange);
     _tabController.removeListener(_handleTabChange);
     _tabController.dispose();
@@ -298,12 +312,17 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
       _setStatus('Computing spectrogram and power summaries…');
       final eeg = await _backend.computeNightProducts(rawEeg, activeConfig);
 
-      // Try to auto-load an existing scoring JSON next to the EDF
+      // Try to auto-load existing scoring and universal markers across all formats
       final epochCount = (eeg.durationSeconds / 30).ceil();
       final loadResult = await tryLoadAutoScoring(path, epochCount);
       final existingStages = loadResult?.stages;
       final existingStagesUncertain = loadResult?.stagesUncertain;
-      final existingEvents = await tryLoadAutoEvents(path);
+      final existingEvents = await tryLoadAllMarkers(
+        path,
+        sampleRateHz: rawEeg.sampleRateHz,
+        recordingStartTime: rawEeg.recordingStartTime,
+        channelLabels: rawEeg.channelLabels,
+      );
 
       final viewport = await _backend.viewportFromEeg(
         eeg,
@@ -321,14 +340,18 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
         _loadedEeg = eeg;
         _config = activeConfig;
         _viewport = viewport.copyWith(scoredEvents: existingEvents);
+        final markerText = existingEvents.isNotEmpty ? '  |  ${existingEvents.length} markers' : '';
         _status =
             'Loaded ${_basename(path)} — '
-            '${existingStages != null ? '${existingStages.where((s) => s.isScored).length}/${existingStages.length} epochs already scored' : 'scoring started'}';
+            '${existingStages != null ? '${existingStages.where((s) => s.isScored).length}/${existingStages.length} epochs scored' : 'scoring started'}$markerText';
       });
       _viewerFocusNode.requestFocus();
       if (_config.tfEnabled) {
         _scheduleTimeFrequencyRefresh(++_navigationSerial);
       }
+
+      // Check for companion video file in the same directory
+      unawaited(_tryAutoDetectCompanionVideo(path));
     } on UnsupportedError catch (e) {
       _setStatus(e.message ?? e.toString());
     } on Object catch (e) {
@@ -336,11 +359,165 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
     }
   }
 
+  // ─── Video Playback & Sync ──────────────────────────────────────────────────
+
+  Future<void> _openVideoFile() async {
+    final result = await FilePicker.pickFiles(
+      dialogTitle: 'Select Synchronized Video File',
+      type: FileType.custom,
+      allowedExtensions: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'MP4', 'MKV', 'AVI', 'MOV'],
+    );
+    final p = result?.files.single.path;
+    if (p != null) {
+      await _loadVideo(p);
+    }
+  }
+
+  Future<void> _loadVideo(String videoPath) async {
+    try {
+      _videoSyncTimer?.cancel();
+      await _videoController?.dispose();
+      _videoController = null;
+
+      final controller = VideoPlayerController.file(File(videoPath));
+      await controller.initialize();
+      controller.addListener(_handleVideoPlayerUpdate);
+
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+
+      setState(() {
+        _videoPath = videoPath;
+        _videoController = controller;
+        _videoPanelVisible = true;
+        _isVideoPlaying = false;
+      });
+
+      final currentEpoch = _viewport?.currentEpoch ?? 0;
+      await _seekVideoToEpoch(currentEpoch);
+      _setStatus('Loaded synchronized video: ${_basename(videoPath)}');
+    } catch (e) {
+      _setStatus('Could not load video: $e');
+    }
+  }
+
+  void _handleVideoPlayerUpdate() {
+    if (!mounted || _videoController == null) return;
+    final playing = _videoController!.value.isPlaying;
+    if (playing != _isVideoPlaying) {
+      setState(() => _isVideoPlaying = playing);
+      if (playing) {
+        _startVideoPlaybackSync();
+      } else {
+        _videoSyncTimer?.cancel();
+      }
+    }
+  }
+
+  void _startVideoPlaybackSync() {
+    _videoSyncTimer?.cancel();
+    _videoSyncTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      if (!mounted || _videoController == null || !_videoController!.value.isPlaying) return;
+      final posSec = _videoController!.value.position.inMilliseconds / 1000.0;
+      final eegSec = posSec - _videoOffsetSeconds;
+      if (eegSec < 0) return;
+
+      final epochSec = _viewport?.epochSeconds ?? 30;
+      final targetEpoch = (eegSec / epochSec).floor() + 1;
+      final currentEpoch = _viewport?.currentEpoch ?? 0;
+      if (targetEpoch != currentEpoch + 1 &&
+          targetEpoch >= 1 &&
+          targetEpoch <= (_viewport?.epochCount ?? 1)) {
+        _jumpToEpoch(targetEpoch, false);
+      }
+    });
+  }
+
+  Future<void> _seekVideoToEpoch(int epoch) async {
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) return;
+    final epochSec = _viewport?.epochSeconds ?? 30;
+    final eegSec = epoch * epochSec.toDouble();
+    final targetVideoSec = math.max(0.0, eegSec + _videoOffsetSeconds);
+    await controller.seekTo(Duration(milliseconds: (targetVideoSec * 1000).round()));
+  }
+
+  Future<void> _toggleVideoPlayPause() async {
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (controller.value.isPlaying) {
+      await controller.pause();
+    } else {
+      await controller.play();
+    }
+  }
+
+  Future<void> _tryAutoDetectCompanionVideo(String eegPath) async {
+    final dotIdx = eegPath.lastIndexOf('.');
+    final base = dotIdx >= 0 ? eegPath.substring(0, dotIdx) : eegPath;
+    final exts = ['mp4', 'MP4', 'mkv', 'MKV', 'avi', 'AVI', 'mov', 'MOV', 'webm'];
+    for (final ext in exts) {
+      final cand = '$base.$ext';
+      if (File(cand).existsSync()) {
+        await _loadVideo(cand);
+        return;
+      }
+    }
+  }
+
+  // ─── Markers & Annotations Dialog ──────────────────────────────────────────
+
+  void _openMarkersDialog() {
+    final vp = _viewport;
+    if (vp == null) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => MarkersDialog(
+        events: vp.scoredEvents,
+        disabledLabels: vp.disabledMarkerLabels,
+        epochSeconds: vp.epochSeconds,
+        epochCount: vp.epochCount,
+        recordingStartTime: vp.recordingStartTime,
+        onToggleLabel: (label, visible) {
+          setState(() {
+            final newSet = Set<String>.from(_viewport!.disabledMarkerLabels);
+            if (visible) {
+              newSet.remove(label);
+            } else {
+              newSet.add(label);
+            }
+            _viewport = _viewport!.copyWith(disabledMarkerLabels: newSet);
+          });
+        },
+        onSetAllLabels: (selectAll) {
+          setState(() {
+            final newSet = selectAll
+                ? <String>{}
+                : {for (final ev in _viewport!.scoredEvents) ev.label};
+            _viewport = _viewport!.copyWith(disabledMarkerLabels: newSet);
+          });
+        },
+        onJumpToEvent: (ev) {
+          final epoch = (ev.startSec / vp.epochSeconds).floor() + 1;
+          _jumpToEpoch(epoch);
+        },
+      ),
+    );
+  }
+
   // ─── Close file ────────────────────────────────────────────────────────────
 
   void _closeCurrentFile() {
     _tfRefreshTimer?.cancel();
     _tfRefreshTimer = null;
+    _videoSyncTimer?.cancel();
+    _videoSyncTimer = null;
+    _videoController?.dispose();
+    _videoController = null;
+    _videoPath = null;
+    _videoPanelVisible = false;
     setState(() {
       _activePath = null;
       _loadedEeg = null;
@@ -479,6 +656,9 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
       if (claimFocus) {
         _viewerFocusNode.requestFocus();
       }
+    }
+    if (_videoController != null && !_isVideoPlaying) {
+      unawaited(_seekVideoToEpoch(epoch));
     }
     if (eeg != null && _config.tfEnabled) {
       _scheduleTimeFrequencyRefresh(serial);
@@ -3785,6 +3965,10 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             onSelected: () => _openRecording(kind: 'r09'),
           ),
           PlatformMenuItem(
+            label: 'Open Synchronized Video…',
+            onSelected: _openVideoFile,
+          ),
+          PlatformMenuItem(
             label: 'Close Current File',
             onSelected: _closeCurrentFile,
           ),
@@ -3794,6 +3978,10 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
       PlatformMenu(
         label: 'Scoring',
         menus: [
+          PlatformMenuItem(
+            label: 'Markers & Annotations… [M]',
+            onSelected: _openMarkersDialog,
+          ),
           PlatformMenuItem(
             label: 'Import scoring… (auto-detect format)',
             onSelected: _loadScoring,
@@ -4001,6 +4189,26 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
           ),
         ],
       ),
+      // ─── View ─────────────────────────────────────────────────────────
+      PlatformMenu(
+        label: 'View',
+        menus: [
+          PlatformMenuItem(
+            label: 'Markers & Annotations… [M]',
+            onSelected: _openMarkersDialog,
+          ),
+          PlatformMenuItem(
+            label: 'Toggle Synchronized Video [V]',
+            onSelected: () {
+              if (_videoController == null) {
+                _openVideoFile();
+              } else {
+                setState(() => _videoPanelVisible = !_videoPanelVisible);
+              }
+            },
+          ),
+        ],
+      ),
       // ─── Help ─────────────────────────────────────────────────────────
       PlatformMenu(
         label: 'Help',
@@ -4062,6 +4270,10 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                 onPressed: () => _openRecording(kind: 'r09'),
                 child: const Text('Load Zurich data file (.r09)'),
               ),
+              MenuItemButton(
+                onPressed: _openVideoFile,
+                child: const Text('Open Synchronized Video…'),
+              ),
               const Divider(height: 1),
               MenuItemButton(
                 onPressed: _closeCurrentFile,
@@ -4072,6 +4284,10 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
           ),
           SubmenuButton(
             menuChildren: [
+              MenuItemButton(
+                onPressed: _openMarkersDialog,
+                child: const Text('Markers & Annotations… [M]'),
+              ),
               MenuItemButton(
                 onPressed: _loadScoring,
                 child: const Text('Import scoring… (auto-detect format)'),
@@ -5162,6 +5378,22 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             _FilterIntent: CallbackAction<_FilterIntent>(
               onInvoke: (_) => _openFilterDialog(),
             ),
+            _MarkersIntent: CallbackAction<_MarkersIntent>(
+              onInvoke: (_) {
+                _openMarkersDialog();
+                return null;
+              },
+            ),
+            _ToggleVideoIntent: CallbackAction<_ToggleVideoIntent>(
+              onInvoke: (_) {
+                if (_videoController == null) {
+                  _openVideoFile();
+                } else {
+                  setState(() => _videoPanelVisible = !_videoPanelVisible);
+                }
+                return null;
+              },
+            ),
           },
           child: Focus(
             focusNode: _viewerFocusNode,
@@ -5240,22 +5472,67 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                         tfEnabled: _config.tfEnabled,
                         onToggleWavelet: _toggleWavelet,
                         onOverlayChanged: _setHypnogramOverlayMode,
+                        onOpenMarkers: _openMarkersDialog,
+                        onToggleVideo: () {
+                          if (_videoController == null) {
+                            _openVideoFile();
+                          } else {
+                            setState(
+                              () => _videoPanelVisible = !_videoPanelVisible,
+                            );
+                          }
+                        },
+                        videoLoaded: _videoController != null,
+                        videoVisible: _videoPanelVisible,
                       ),
                       Expanded(
                         child: viewport == null
                             ? const Center(child: CircularProgressIndicator())
-                            : _ScoringHeroSurface(
-                                viewport: viewport,
-                                onJump: (epoch) => _jumpToEpoch(epoch),
-                                swaSlider: _swaSlider,
-                                onSwaSlider: (v) =>
-                                    setState(() => _swaSlider = v),
-                                onSelectionEnd: _updateSelection,
-                                comparisonStages: _comparisonStages,
-                                tfEnabled: _config.tfEnabled,
-                                onResizeFlex: _updateFlexValues,
-                                onLightsMarkersChanged: _updateLightsMarkers,
-                                onOverlayChanged: _setHypnogramOverlayMode,
+                            : Stack(
+                                children: [
+                                  _ScoringHeroSurface(
+                                    viewport: viewport,
+                                    onJump: (epoch) => _jumpToEpoch(epoch),
+                                    swaSlider: _swaSlider,
+                                    onSwaSlider: (v) =>
+                                        setState(() => _swaSlider = v),
+                                    onSelectionEnd: _updateSelection,
+                                    comparisonStages: _comparisonStages,
+                                    tfEnabled: _config.tfEnabled,
+                                    onResizeFlex: _updateFlexValues,
+                                    onLightsMarkersChanged:
+                                        _updateLightsMarkers,
+                                    onOverlayChanged: _setHypnogramOverlayMode,
+                                  ),
+                                  if (_videoPanelVisible &&
+                                      _videoController != null)
+                                    Positioned(
+                                      right: 16,
+                                      bottom: 16,
+                                      child: SyncedVideoPanel(
+                                        videoPath: _videoPath ?? '',
+                                        controller: _videoController!,
+                                        currentEegSeconds:
+                                            viewport.currentEpoch *
+                                            viewport.epochSeconds.toDouble(),
+                                        offsetSeconds: _videoOffsetSeconds,
+                                        onOffsetChanged: (newOffset) {
+                                          setState(
+                                            () =>
+                                                _videoOffsetSeconds = newOffset,
+                                          );
+                                          _seekVideoToEpoch(
+                                            viewport.currentEpoch,
+                                          );
+                                        },
+                                        onClose: () => setState(
+                                          () => _videoPanelVisible = false,
+                                        ),
+                                        onTogglePlayPause: _toggleVideoPlayPause,
+                                        isPlaying: _isVideoPlaying,
+                                      ),
+                                    ),
+                                ],
                               ),
                       ),
                       _StatusBar(
@@ -5432,6 +5709,10 @@ class _Toolbar extends StatefulWidget {
     required this.tfEnabled,
     required this.onToggleWavelet,
     this.onOverlayChanged,
+    this.onOpenMarkers,
+    this.onToggleVideo,
+    this.videoLoaded = false,
+    this.videoVisible = false,
   });
 
   final EegViewport? viewport;
@@ -5454,6 +5735,10 @@ class _Toolbar extends StatefulWidget {
   final VoidCallback onToggleWavelet;
   final void Function(String overlayMode, [String? probabilityStage])?
   onOverlayChanged;
+  final VoidCallback? onOpenMarkers;
+  final VoidCallback? onToggleVideo;
+  final bool videoLoaded;
+  final bool videoVisible;
 
   @override
   State<_Toolbar> createState() => _ToolbarState();
@@ -5827,6 +6112,22 @@ class _ToolbarState extends State<_Toolbar> {
                 tooltip: 'Toggle wavelet time-frequency panel visibility',
                 enabled: enabled,
                 onPressed: widget.onToggleWavelet,
+              ),
+              const SizedBox(width: 8),
+              const _Divider(),
+              _ToolButton(
+                label: 'markers (${widget.viewport?.scoredEvents.length ?? 0})',
+                tooltip: 'Open Markers & Annotations Manager [M]',
+                enabled: enabled,
+                onPressed: widget.onOpenMarkers ?? () {},
+              ),
+              _ToolButton(
+                label: widget.videoLoaded
+                    ? (widget.videoVisible ? 'video [ON]' : 'video [OFF]')
+                    : 'video',
+                tooltip: 'Toggle Synchronized Video [V]',
+                enabled: enabled,
+                onPressed: widget.onToggleVideo ?? () {},
               ),
             ],
           ),
@@ -6847,6 +7148,14 @@ class _FilterIntent extends Intent {
   const _FilterIntent();
 }
 
+class _MarkersIntent extends Intent {
+  const _MarkersIntent();
+}
+
+class _ToggleVideoIntent extends Intent {
+  const _ToggleVideoIntent();
+}
+
 final _shortcuts = <ShortcutActivator, Intent>{
   // Stage scoring
   const SingleActivator(LogicalKeyboardKey.keyW): const _ScoreIntent(
@@ -6895,6 +7204,9 @@ final _shortcuts = <ShortcutActivator, Intent>{
   const SingleActivator(LogicalKeyboardKey.backspace):
       const _EraseEventsIntent(),
   const SingleActivator(LogicalKeyboardKey.keyZ): const _ZoomSelectionIntent(),
+  // Markers & Video Shortcuts
+  const SingleActivator(LogicalKeyboardKey.keyM): const _MarkersIntent(),
+  const SingleActivator(LogicalKeyboardKey.keyV): const _ToggleVideoIntent(),
   // Detections
   const SingleActivator(LogicalKeyboardKey.keyK, control: true):
       const _KComplexDetectionIntent(),

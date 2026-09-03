@@ -110,6 +110,8 @@ class ScoredEvent {
     required this.label,
     required this.startSec,
     required this.endSec,
+    this.channel,
+    this.type = 'Event',
   });
 
   final int digit;
@@ -117,8 +119,11 @@ class ScoredEvent {
   final String label;
   final double startSec;
   final double endSec;
+  final String? channel;
+  final String type;
 
   double get durationSeconds => (endSec - startSec).abs();
+  bool get isPointMarker => durationSeconds < 0.05;
 
   List<int> epochs(int epochSeconds, int epochCount) {
     final s = startSec < endSec ? startSec : endSec;
@@ -126,6 +131,28 @@ class ScoredEvent {
     final first = (s / epochSeconds).floor().clamp(0, epochCount - 1);
     final last = ((e - 1e-9) / epochSeconds).floor().clamp(0, epochCount - 1);
     return [for (var i = first; i <= last; i++) i];
+  }
+
+  Map<String, dynamic> toJson() => {
+    'digit': digit,
+    'key': key,
+    'label': label,
+    'startSec': startSec,
+    'endSec': endSec,
+    if (channel != null) 'channel': channel,
+    'type': type,
+  };
+
+  factory ScoredEvent.fromJson(Map<String, dynamic> json) {
+    return ScoredEvent(
+      digit: json['digit'] as int? ?? 0,
+      key: json['key'] as String? ?? '',
+      label: json['label'] as String? ?? 'Event',
+      startSec: (json['startSec'] as num?)?.toDouble() ?? 0.0,
+      endSec: (json['endSec'] as num?)?.toDouble() ?? 0.0,
+      channel: json['channel'] as String?,
+      type: json['type'] as String? ?? 'Event',
+    );
   }
 }
 
@@ -233,6 +260,7 @@ class EegViewport {
     this.selectionPeakToPeakUv,
     this.eventSelections = const [],
     this.scoredEvents = const [],
+    this.disabledMarkerLabels = const {},
     this.visibleChannelLabels = const [],
     this.visibleChannelSourceIndices = const [],
     this.visibleChannelColors = const [],
@@ -341,6 +369,7 @@ class EegViewport {
   final double? selectionPeakToPeakUv;
   final List<EventSelection> eventSelections;
   final List<ScoredEvent> scoredEvents;
+  final Set<String> disabledMarkerLabels;
   final List<String> visibleChannelLabels;
   final List<int> visibleChannelSourceIndices;
   final List<String> visibleChannelColors;
@@ -385,6 +414,7 @@ class EegViewport {
     double? selectionPeakToPeakUv,
     List<EventSelection>? eventSelections,
     List<ScoredEvent>? scoredEvents,
+    Set<String>? disabledMarkerLabels,
     List<String>? visibleChannelLabels,
     List<int>? visibleChannelSourceIndices,
     List<String>? visibleChannelColors,
@@ -489,6 +519,8 @@ class EegViewport {
           ? const []
           : (eventSelections ?? this.eventSelections),
       scoredEvents: scoredEvents ?? this.scoredEvents,
+      disabledMarkerLabels:
+          disabledMarkerLabels ?? this.disabledMarkerLabels,
       visibleChannelLabels: visibleChannelLabels ?? this.visibleChannelLabels,
       visibleChannelSourceIndices:
           visibleChannelSourceIndices ?? this.visibleChannelSourceIndices,

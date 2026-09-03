@@ -1,0 +1,372 @@
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'models.dart';
+
+Color _eventColor(int digit) {
+  const colors = [
+    Color(0xFFE53935), // 0 Red
+    Color(0xFF1E88E5), // 1 Blue
+    Color(0xFF43A047), // 2 Green
+    Color(0xFFFB8C00), // 3 Orange
+    Color(0xFF8E24AA), // 4 Purple
+    Color(0xFF00ACC1), // 5 Cyan
+    Color(0xFFFDD835), // 6 Yellow
+    Color(0xFFD81B60), // 7 Pink
+    Color(0xFF3949AB), // 8 Indigo
+    Color(0xFF00897B), // 9 Teal
+  ];
+  return colors[digit.clamp(0, 9)];
+}
+
+class MarkersDialog extends StatefulWidget {
+  const MarkersDialog({
+    super.key,
+    required this.events,
+    required this.disabledLabels,
+    required this.epochSeconds,
+    required this.epochCount,
+    this.recordingStartTime,
+    required this.onToggleLabel,
+    required this.onSetAllLabels,
+    required this.onJumpToEvent,
+  });
+
+  final List<ScoredEvent> events;
+  final Set<String> disabledLabels;
+  final int epochSeconds;
+  final int epochCount;
+  final DateTime? recordingStartTime;
+  final void Function(String label, bool visible) onToggleLabel;
+  final void Function(bool selectAll) onSetAllLabels;
+  final void Function(ScoredEvent event) onJumpToEvent;
+
+  @override
+  State<MarkersDialog> createState() => _MarkersDialogState();
+}
+
+class _MarkersDialogState extends State<MarkersDialog> {
+  String _searchQuery = '';
+  late Set<String> _localDisabledLabels;
+
+  @override
+  void initState() {
+    super.initState();
+    _localDisabledLabels = Set<String>.from(widget.disabledLabels);
+  }
+
+  String _formatElapsed(double seconds) {
+    final s = seconds.toInt();
+    final h = s ~/ 3600;
+    final m = (s % 3600) ~/ 60;
+    final sec = s % 60;
+    final dec = ((seconds - s) * 10).toInt();
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}.${dec}s';
+  }
+
+  String _formatClock(double seconds) {
+    if (widget.recordingStartTime == null) return _formatElapsed(seconds);
+    final dt = widget.recordingStartTime!.add(Duration(milliseconds: (seconds * 1000).round()));
+    return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Count per label
+    final labelCounts = <String, int>{};
+    final labelDigit = <String, int>{};
+    for (final ev in widget.events) {
+      labelCounts[ev.label] = (labelCounts[ev.label] ?? 0) + 1;
+      labelDigit[ev.label] = ev.digit;
+    }
+
+    final filteredEvents = widget.events.where((ev) {
+      if (_searchQuery.isNotEmpty) {
+        final q = _searchQuery.toLowerCase();
+        final matchLabel = ev.label.toLowerCase().contains(q);
+        final matchType = ev.type.toLowerCase().contains(q);
+        final matchChan = ev.channel?.toLowerCase().contains(q) ?? false;
+        if (!matchLabel && !matchType && !matchChan) return false;
+      }
+      return true;
+    }).toList();
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: Container(
+        width: 720,
+        height: 600,
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.bookmark_border, color: Color(0xFF1E88E5), size: 24),
+                const SizedBox(width: 10),
+                Text(
+                  'Markers & Annotations (${widget.events.length})',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Close',
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Filter Chips Section
+            if (labelCounts.isNotEmpty) ...[
+              Row(
+                children: [
+                  const Text(
+                    'Marker Types & Visibility:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _localDisabledLabels.clear();
+                      });
+                      widget.onSetAllLabels(true);
+                    },
+                    style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                    child: const Text('Show All', style: TextStyle(fontSize: 12)),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _localDisabledLabels.addAll(labelCounts.keys);
+                      });
+                      widget.onSetAllLabels(false);
+                    },
+                    style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                    child: const Text('Hide All', style: TextStyle(fontSize: 12)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 110),
+                child: SingleChildScrollView(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: labelCounts.entries.map((entry) {
+                      final label = entry.key;
+                      final count = entry.value;
+                      final digit = labelDigit[label] ?? 0;
+                      final isVisible = !_localDisabledLabels.contains(label);
+                      return FilterChip(
+                        selected: isVisible,
+                        avatar: Icon(Icons.circle, size: 10, color: _eventColor(digit)),
+                        label: Text('$label ($count)', style: const TextStyle(fontSize: 11)),
+                        onSelected: (selected) {
+                          setState(() {
+                            if (selected) {
+                              _localDisabledLabels.remove(label);
+                            } else {
+                              _localDisabledLabels.add(label);
+                            }
+                          });
+                          widget.onToggleLabel(label, selected);
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+              const Divider(height: 20),
+            ],
+
+            // Search bar
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 32,
+                    child: TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Search markers by label, type, channel…',
+                        hintStyle: const TextStyle(fontSize: 12),
+                        prefixIcon: const Icon(Icons.search, size: 18),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                        isDense: true,
+                      ),
+                      style: const TextStyle(fontSize: 12),
+                      onChanged: (q) => setState(() => _searchQuery = q.trim()),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            // Table of markers
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: const Color(0xFFD0D0D0)),
+                  borderRadius: BorderRadius.circular(4),
+                  color: Colors.white,
+                ),
+                child: filteredEvents.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No markers matching search',
+                          style: TextStyle(color: Colors.black54),
+                        ),
+                      )
+                    : ListView.separated(
+                        itemCount: filteredEvents.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFE5E5E5)),
+                        itemBuilder: (ctx, i) {
+                          final ev = filteredEvents[i];
+                          final epoch = (ev.startSec / widget.epochSeconds).floor() + 1;
+                          final isVisible = !_localDisabledLabels.contains(ev.label);
+                          final color = _eventColor(ev.digit);
+
+                          return InkWell(
+                            onTap: () {
+                              widget.onJumpToEvent(ev);
+                              Navigator.of(context).pop();
+                            },
+                            child: Opacity(
+                              opacity: isVisible ? 1.0 : 0.45,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: color,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    SizedBox(
+                                      width: 70,
+                                      child: Text(
+                                        'Epoch $epoch',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                      ),
+                                    ),
+                                    SizedBox(
+                                      width: 95,
+                                      child: Text(
+                                        _formatElapsed(ev.startSec),
+                                        style: const TextStyle(fontSize: 11, color: Colors.black87),
+                                      ),
+                                    ),
+                                    if (widget.recordingStartTime != null)
+                                      SizedBox(
+                                        width: 80,
+                                        child: Text(
+                                          _formatClock(ev.startSec),
+                                          style: const TextStyle(fontSize: 11, color: Colors.black54),
+                                        ),
+                                      ),
+                                    SizedBox(
+                                      width: 60,
+                                      child: Text(
+                                        ev.durationSeconds > 0
+                                            ? '${ev.durationSeconds.toStringAsFixed(1)}s'
+                                            : 'Point',
+                                        style: const TextStyle(fontSize: 11, color: Colors.black54),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              ev.label,
+                                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          if (ev.channel != null) ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                              decoration: BoxDecoration(
+                                                color: Colors.grey.shade200,
+                                                borderRadius: BorderRadius.circular(3),
+                                              ),
+                                              child: Text(
+                                                ev.channel!,
+                                                style: const TextStyle(fontSize: 10, color: Colors.black87),
+                                              ),
+                                            ),
+                                          ],
+                                          if (ev.type.isNotEmpty && ev.type != 'Event') ...[
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              '[${ev.type}]',
+                                              style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                    const Icon(Icons.arrow_forward_ios, size: 12, color: Colors.black45),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Bottom bar
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.download, size: 16),
+                  label: const Text('Export CSV…'),
+                  onPressed: widget.events.isEmpty
+                      ? null
+                      : () async {
+                          final path = await FilePicker.saveFile(
+                            dialogTitle: 'Export Markers as CSV',
+                            fileName: 'markers.csv',
+                            type: FileType.custom,
+                            allowedExtensions: ['csv'],
+                          );
+                          if (path != null) {
+                            final sb = StringBuffer('Onset_Sec,Duration_Sec,Label,Type,Channel\n');
+                            for (final ev in widget.events) {
+                              sb.writeln('${ev.startSec},${ev.durationSeconds},"${ev.label}","${ev.type}","${ev.channel ?? ''}"');
+                            }
+                            await File(path).writeAsString(sb.toString());
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Exported ${widget.events.length} markers to $path')),
+                              );
+                            }
+                          }
+                        },
+                ),
+                const Spacer(),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

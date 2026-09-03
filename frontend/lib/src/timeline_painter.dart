@@ -609,6 +609,7 @@ class HypnogramPainter extends CustomPainter {
     final startTime = sEpoch * 30.0;
 
     for (final event in events) {
+      if (viewport.disabledMarkerLabels.contains(event.label)) continue;
       final start = math.min(event.startSec, event.endSec);
       final end = math.max(event.startSec, event.endSec);
       if (end < startTime || start > (sEpoch + visibleCount) * 30.0) continue;
@@ -1863,28 +1864,69 @@ class SelectionOverlayPainter extends CustomPainter {
     final visibleStart = viewport.visibleStartSeconds;
     final visibleEnd = visibleStart + displayTotalSec;
     for (final event in viewport.scoredEvents) {
-      final start = math.max(
-        math.min(event.startSec, event.endSec),
-        visibleStart,
-      );
-      final end = math.min(math.max(event.startSec, event.endSec), visibleEnd);
-      if (end <= start) continue;
+      if (viewport.disabledMarkerLabels.contains(event.label)) continue;
+      final rawStart = math.min(event.startSec, event.endSec);
+      final rawEnd = math.max(event.startSec, event.endSec);
+
+      if (rawEnd < visibleStart || rawStart > visibleEnd) continue;
+
+      final start = math.max(rawStart, visibleStart);
+      final end = math.min(rawEnd, visibleEnd);
+
       final x1 =
           _leftPad + ((start - visibleStart) / displayTotalSec) * drawWidth;
       final x2 =
           _leftPad + ((end - visibleStart) / displayTotalSec) * drawWidth;
       final color = _eventColor(event.digit);
-      canvas.drawRect(
-        Rect.fromLTRB(x1, 0, x2, size.height),
-        Paint()..color = color.withOpacity(0.22),
+
+      if (event.isPointMarker || (x2 - x1).abs() < 2.0) {
+        // Point marker line
+        canvas.drawLine(
+          Offset(x1, 0),
+          Offset(x1, size.height),
+          Paint()
+            ..color = color.withOpacity(0.85)
+            ..strokeWidth = 1.5,
+        );
+      } else {
+        // Duration span interval
+        canvas.drawRect(
+          Rect.fromLTRB(x1, 0, x2, size.height),
+          Paint()..color = color.withOpacity(0.18),
+        );
+        canvas.drawRect(
+          Rect.fromLTRB(x1, 0, x2, size.height),
+          Paint()
+            ..color = color.withOpacity(0.75)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.0,
+        );
+      }
+
+      // Draw high-contrast badge pill at the top with event/marker label
+      final labelSpan = TextSpan(
+        text: ' ${event.label} ',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9.5,
+          fontWeight: FontWeight.bold,
+        ),
       );
-      canvas.drawRect(
-        Rect.fromLTRB(x1, 0, x2, size.height),
-        Paint()
-          ..color = color.withOpacity(0.75)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.0,
+      final labelPainter = TextPainter(
+        text: labelSpan,
+        textDirection: TextDirection.ltr,
+      )..layout();
+
+      final double bgX = x1.clamp(
+        _leftPad,
+        math.max(_leftPad, size.width - labelPainter.width - 4),
+      ).toDouble();
+      final bgRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(bgX, 2, labelPainter.width + 4, labelPainter.height + 2),
+        const Radius.circular(3),
       );
+      canvas.drawRRect(bgRect, Paint()..color = color.withOpacity(0.88));
+      labelPainter.paint(canvas, Offset(bgX + 2, 3));
     }
     for (final selection in viewport.eventSelections) {
       _drawSelectionBox(
