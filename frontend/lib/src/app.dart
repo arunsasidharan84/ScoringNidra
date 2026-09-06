@@ -110,6 +110,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
   String? _videoPath;
   VideoPlayerController? _videoController;
   bool _videoPanelVisible = false;
+  bool _waveformMaximized = false;
   double _videoOffsetSeconds = 0.0;
   bool _isVideoPlaying = false;
   Timer? _videoSyncTimer;
@@ -4261,10 +4262,13 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
       PlatformMenu(
         label: 'Events',
         menus: [
-          PlatformMenuItem(label: 'Artefact', onSelected: () => _markEvent(0)),
+          PlatformMenuItem(
+            label: 'Artefact  [A]',
+            onSelected: () => _markEvent(0),
+          ),
           for (var i = 1; i <= 12; i++)
             PlatformMenuItem(
-              label: 'Event $i',
+              label: 'Event $i  [F$i / Func $i]',
               onSelected: () => _markEvent(i),
             ),
           PlatformMenuItem(
@@ -4416,6 +4420,14 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
           PlatformMenuItem(
             label: 'Markers & Annotations… [M]',
             onSelected: _openMarkersDialog,
+          ),
+          PlatformMenuItem(
+            label: _waveformMaximized
+                ? 'Restore View Panels  [F]'
+                : 'Maximize Waveform Plot  [F]',
+            onSelected: () {
+              setState(() => _waveformMaximized = !_waveformMaximized);
+            },
           ),
           PlatformMenuItem(
             label: 'Toggle Synchronized Video [V]',
@@ -4578,12 +4590,12 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             menuChildren: [
               MenuItemButton(
                 onPressed: () => _markEvent(0),
-                child: const Text('Artefact [A]'),
+                child: const Text('Artefact  [A]'),
               ),
               for (var i = 1; i <= 12; i++)
                 MenuItemButton(
                   onPressed: () => _markEvent(i),
-                  child: Text('Event $i [F$i]'),
+                  child: Text('Event $i  [F$i / Func $i]'),
                 ),
               const Divider(height: 1),
               MenuItemButton(
@@ -5620,6 +5632,13 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                 return null;
               },
             ),
+            _ToggleWaveformMaximizeIntent:
+                CallbackAction<_ToggleWaveformMaximizeIntent>(
+              onInvoke: (_) {
+                setState(() => _waveformMaximized = !_waveformMaximized);
+                return null;
+              },
+            ),
           },
           child: Focus(
             focusNode: _viewerFocusNode,
@@ -5629,8 +5648,9 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
               appBar: PreferredSize(
                 preferredSize: const Size.fromHeight(36),
                 child: Container(
+                  height: 36,
                   decoration: const BoxDecoration(
-                    color: Colors.white,
+                    color: Color(0xFFF7F7F7),
                     border: Border(
                       bottom: BorderSide(color: Color(0xFFD0D0D0)),
                     ),
@@ -5640,9 +5660,11 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                       Expanded(
                         child: TabBar(
                           controller: _tabController,
-                          labelColor: Colors.black,
-                          unselectedLabelColor: Colors.grey,
-                          indicatorColor: Colors.blue,
+                          isScrollable: true,
+                          tabAlignment: TabAlignment.start,
+                          indicatorSize: TabBarIndicatorSize.tab,
+                          labelColor: Colors.black87,
+                          unselectedLabelColor: Colors.black54,
                           labelStyle: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
@@ -5734,6 +5756,11 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                                     onChannelScaleApplyAll:
                                         _applyScaleToAllChannels,
                                     onTimeUnitChanged: _setEegPanelTimeUnit,
+                                    waveformMaximized: _waveformMaximized,
+                                    onToggleMaximize: () => setState(
+                                      () => _waveformMaximized =
+                                          !_waveformMaximized,
+                                    ),
                                   ),
                                   if (_videoPanelVisible &&
                                       _videoController != null)
@@ -6406,6 +6433,8 @@ class _ScoringHeroSurface extends StatefulWidget {
     this.onChannelScaleSet,
     this.onChannelScaleApplyAll,
     this.onTimeUnitChanged,
+    this.waveformMaximized = false,
+    this.onToggleMaximize,
   });
 
   final EegViewport viewport;
@@ -6436,6 +6465,8 @@ class _ScoringHeroSurface extends StatefulWidget {
   final void Function(int channelIndex, double newScale)? onChannelScaleSet;
   final void Function(double newScale)? onChannelScaleApplyAll;
   final ValueChanged<String>? onTimeUnitChanged;
+  final bool waveformMaximized;
+  final VoidCallback? onToggleMaximize;
 
   @override
   State<_ScoringHeroSurface> createState() => _ScoringHeroSurfaceState();
@@ -6452,6 +6483,7 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
   int _dragSpecStartFlex = 0;
   int _dragHypStartFlex = 0;
   int _dragPerStartFlex = 0;
+  double _topPanelHeight = 158.0;
 
   void _handlePanStart(DragStartDetails details, BoxConstraints constraints) {
     final n = widget.viewport.channelCount;
@@ -6569,143 +6601,174 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
       color: Colors.white,
       child: Column(
         children: [
-          // Top strip: spectrogram | hypnogram | optional SWA slider | power spectrum
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final totalWidth = constraints.maxWidth;
-              final showSwaSlider =
-                  widget.viewport.hypnogramOverlayMode == 'SWA';
-              final swaWidth = showSwaSlider ? 42.0 : 0.0;
-              final dividerWidth = 8.0;
-              final netWidth = totalWidth - swaWidth - (dividerWidth * 2);
+          if (!widget.waveformMaximized) ...[
+            // Top strip: spectrogram | hypnogram | optional SWA slider | power spectrum
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final totalWidth = constraints.maxWidth;
+                final showSwaSlider =
+                    widget.viewport.hypnogramOverlayMode == 'SWA';
+                final swaWidth = showSwaSlider ? 42.0 : 0.0;
+                final dividerWidth = 8.0;
+                final netWidth = totalWidth - swaWidth - (dividerWidth * 2);
 
-              final specFlex = widget.viewport.spectrogramFlex;
-              final hypFlex = widget.viewport.hypnogramFlex;
-              final perFlex = widget.viewport.periodogramFlex;
-              final totalFlex = specFlex + hypFlex + perFlex;
+                final specFlex = widget.viewport.spectrogramFlex;
+                final hypFlex = widget.viewport.hypnogramFlex;
+                final perFlex = widget.viewport.periodogramFlex;
+                final totalFlex = specFlex + hypFlex + perFlex;
 
-              final flexPerPixel = totalFlex / netWidth;
+                final flexPerPixel = totalFlex / netWidth;
 
-              return SizedBox(
-                height: 158,
-                child: Row(
-                  children: [
-                    Expanded(
-                      flex: specFlex,
-                      child: _ClickablePainterPanel(
-                        painter: SpectrogramPainter(widget.viewport),
-                        onTapFraction: (fx) {
-                          final epoch = (fx * widget.viewport.epochCount)
-                              .floor()
-                              .clamp(0, widget.viewport.epochCount - 1);
-                          widget.onJump(epoch + 1);
-                        },
+                return SizedBox(
+                  height: _topPanelHeight,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: specFlex,
+                        child: _ClickablePainterPanel(
+                          painter: SpectrogramPainter(widget.viewport),
+                          onTapFraction: (fx) {
+                            final epoch = (fx * widget.viewport.epochCount)
+                                .floor()
+                                .clamp(0, widget.viewport.epochCount - 1);
+                            widget.onJump(epoch + 1);
+                          },
+                        ),
                       ),
-                    ),
-                    GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onHorizontalDragStart: (_) {
-                        _cumulativeDx = 0.0;
-                        _dragSpecStartFlex = widget.viewport.spectrogramFlex;
-                        _dragHypStartFlex = widget.viewport.hypnogramFlex;
-                      },
-                      onHorizontalDragUpdate: (dragDetails) {
-                        _cumulativeDx += dragDetails.delta.dx;
-                        final deltaFlex = (_cumulativeDx * flexPerPixel)
-                            .round();
-                        final newSpec = (_dragSpecStartFlex + deltaFlex).clamp(
-                          5,
-                          totalFlex - perFlex - 5,
-                        );
-                        final newHyp = totalFlex - newSpec - perFlex;
-                        widget.onResizeFlex(newSpec, newHyp, perFlex);
-                      },
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.resizeLeftRight,
-                        child: SizedBox(
-                          width: dividerWidth,
-                          child: const Center(
-                            child: VerticalDivider(
-                              width: 1,
-                              thickness: 1,
-                              color: Color(0xFFD0D0D0),
+                      GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onHorizontalDragStart: (_) {
+                          _cumulativeDx = 0.0;
+                          _dragSpecStartFlex = widget.viewport.spectrogramFlex;
+                          _dragHypStartFlex = widget.viewport.hypnogramFlex;
+                        },
+                        onHorizontalDragUpdate: (dragDetails) {
+                          _cumulativeDx += dragDetails.delta.dx;
+                          final deltaFlex = (_cumulativeDx * flexPerPixel)
+                              .round();
+                          final newSpec = (_dragSpecStartFlex + deltaFlex).clamp(
+                            5,
+                            totalFlex - perFlex - 5,
+                          );
+                          final newHyp = totalFlex - newSpec - perFlex;
+                          widget.onResizeFlex(newSpec, newHyp, perFlex);
+                        },
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.resizeLeftRight,
+                          child: SizedBox(
+                            width: dividerWidth,
+                            child: const Center(
+                              child: VerticalDivider(
+                                width: 1,
+                                thickness: 1,
+                                color: Color(0xFFD0D0D0),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    Expanded(
-                      flex: hypFlex,
-                      child: _HypnogramPainterPanel(
-                        viewport: widget.viewport,
-                        swaKernelSize: 101 - widget.swaSlider,
-                        comparisonStages: widget.comparisonStages,
-                        startEpoch: startEpoch,
-                        endEpoch: endEpoch,
-                        onLightsMarkersChanged: widget.onLightsMarkersChanged,
-                        onOverlayChanged: widget.onOverlayChanged,
-                        onTimeUnitChanged: widget.onTimeUnitChanged,
-                        onTapFraction: (fx) {
-                          final visibleCount = endEpoch - startEpoch;
-                          final epoch = (startEpoch + (fx * visibleCount).floor())
-                              .clamp(startEpoch, endEpoch - 1);
-                          widget.onJump(epoch + 1);
-                        },
+                      Expanded(
+                        flex: hypFlex,
+                        child: _HypnogramPainterPanel(
+                          viewport: widget.viewport,
+                          swaKernelSize: 101 - widget.swaSlider,
+                          comparisonStages: widget.comparisonStages,
+                          startEpoch: startEpoch,
+                          endEpoch: endEpoch,
+                          onLightsMarkersChanged: widget.onLightsMarkersChanged,
+                          onOverlayChanged: widget.onOverlayChanged,
+                          onTimeUnitChanged: widget.onTimeUnitChanged,
+                          onTapFraction: (fx) {
+                            final visibleCount = endEpoch - startEpoch;
+                            final epoch =
+                                (startEpoch + (fx * visibleCount).floor())
+                                    .clamp(startEpoch, endEpoch - 1);
+                            widget.onJump(epoch + 1);
+                          },
+                        ),
                       ),
-                    ),
-                    if (showSwaSlider) ...[
-                      SizedBox(
-                        width: 42,
-                        child: _HypnogramSlider(
-                          value: widget.swaSlider,
-                          onChanged: widget.onSwaSlider,
+                      if (showSwaSlider) ...[
+                        SizedBox(
+                          width: 42,
+                          child: _HypnogramSlider(
+                            value: widget.swaSlider,
+                            onChanged: widget.onSwaSlider,
+                          ),
+                        ),
+                      ],
+                      GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onHorizontalDragStart: (_) {
+                          _cumulativeDx = 0.0;
+                          _dragHypStartFlex = widget.viewport.hypnogramFlex;
+                          _dragPerStartFlex = widget.viewport.periodogramFlex;
+                        },
+                        onHorizontalDragUpdate: (dragDetails) {
+                          _cumulativeDx += dragDetails.delta.dx;
+                          final deltaFlex = (_cumulativeDx * flexPerPixel)
+                              .round();
+                          final newHyp = (_dragHypStartFlex + deltaFlex).clamp(
+                            5,
+                            totalFlex - specFlex - 5,
+                          );
+                          final newPer = totalFlex - specFlex - newHyp;
+                          widget.onResizeFlex(specFlex, newHyp, newPer);
+                        },
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.resizeLeftRight,
+                          child: SizedBox(
+                            width: dividerWidth,
+                            child: const Center(
+                              child: VerticalDivider(
+                                width: 1,
+                                thickness: 1,
+                                color: Color(0xFFD0D0D0),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: perFlex,
+                        child: _Panel(
+                          painter: RectanglePowerPainter(widget.viewport),
                         ),
                       ),
                     ],
-                    GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onHorizontalDragStart: (_) {
-                        _cumulativeDx = 0.0;
-                        _dragHypStartFlex = widget.viewport.hypnogramFlex;
-                        _dragPerStartFlex = widget.viewport.periodogramFlex;
-                      },
-                      onHorizontalDragUpdate: (dragDetails) {
-                        _cumulativeDx += dragDetails.delta.dx;
-                        final deltaFlex = (_cumulativeDx * flexPerPixel)
-                            .round();
-                        final newHyp = (_dragHypStartFlex + deltaFlex).clamp(
-                          5,
-                          totalFlex - specFlex - 5,
-                        );
-                        final newPer = totalFlex - specFlex - newHyp;
-                        widget.onResizeFlex(specFlex, newHyp, newPer);
-                      },
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.resizeLeftRight,
-                        child: SizedBox(
-                          width: dividerWidth,
-                          child: const Center(
-                            child: VerticalDivider(
-                              width: 1,
-                              thickness: 1,
-                              color: Color(0xFFD0D0D0),
-                            ),
-                          ),
-                        ),
+                  ),
+                );
+              },
+            ),
+            // Draggable horizontal splitter between top strip and waveform plot
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onVerticalDragUpdate: (details) {
+                setState(() {
+                  _topPanelHeight =
+                      (_topPanelHeight + details.delta.dy).clamp(60.0, 450.0);
+                });
+              },
+              onDoubleTap: widget.onToggleMaximize,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.resizeUpDown,
+                child: Container(
+                  height: 6,
+                  color: const Color(0xFFE4E4E4),
+                  child: Center(
+                    child: Container(
+                      width: 38,
+                      height: 3,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFAAAAAA),
+                        borderRadius: BorderRadius.circular(1.5),
                       ),
                     ),
-                    Expanded(
-                      flex: perFlex,
-                      child: _Panel(
-                        painter: RectanglePowerPainter(widget.viewport),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              );
-            },
-          ),
-          // Middle: EEG signal (largest panel)
+              ),
+            ),
+          ],
+          // Middle: EEG signal (largest panel, fills full height when maximized)
           Expanded(
             flex: 74,
             child: LayoutBuilder(
@@ -6756,12 +6819,69 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
                         ],
                       ),
                     ),
+                    // Maximize / Restore floating pill in top right corner
+                    Positioned(
+                      top: 4,
+                      right: 8,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.black26, width: 0.8),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x18000000),
+                              blurRadius: 2,
+                              offset: Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        child: Tooltip(
+                          message: widget.waveformMaximized
+                              ? 'Restore top panels (Press F or double-click splitter)'
+                              : 'Maximize waveform plot to fill screen (Press F)',
+                          child: InkWell(
+                            onTap: widget.onToggleMaximize,
+                            borderRadius: BorderRadius.circular(4),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2.5,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    widget.waveformMaximized
+                                        ? Icons.fullscreen_exit
+                                        : Icons.fullscreen,
+                                    size: 15,
+                                    color: Colors.blueGrey.shade800,
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    widget.waveformMaximized
+                                        ? 'Restore'
+                                        : 'Maximize',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.blueGrey.shade900,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                     if (channelCount > 0 && channelHeight > 0)
                       Positioned(
                         left: 0,
                         top: 0,
                         bottom: 0,
-                        width: _plotLeftPadding - 18,
+                        width: _plotLeftPadding - 16,
                         child: _ElectrodeScaleColumn(
                           viewport: widget.viewport,
                           channelHeight: channelHeight,
@@ -6776,7 +6896,7 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
             ),
           ),
           // Bottom: Time-Frequency panel
-          if (widget.tfEnabled) ...[
+          if (widget.tfEnabled && !widget.waveformMaximized) ...[
             Expanded(
               flex: 16,
               child: _Panel(painter: TimeFrequencyPainter(widget.viewport)),
@@ -7304,30 +7424,17 @@ class _HypnogramPainterPanelState extends State<_HypnogramPainterPanel> {
                 cursor: _draggingMarker == null
                     ? SystemMouseCursors.click
                     : SystemMouseCursors.resizeLeftRight,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ClipRect(
-                      child: CustomPaint(
-                        painter: HypnogramPainter(
-                          _effectiveViewport,
-                          swaKernelSize: widget.swaKernelSize,
-                          comparisonStages: widget.comparisonStages,
-                          startEpoch: widget.startEpoch,
-                          endEpoch: widget.endEpoch,
-                        ),
-                        child: const SizedBox.expand(),
-                      ),
+                child: ClipRect(
+                  child: CustomPaint(
+                    painter: HypnogramPainter(
+                      _effectiveViewport,
+                      swaKernelSize: widget.swaKernelSize,
+                      comparisonStages: widget.comparisonStages,
+                      startEpoch: widget.startEpoch,
+                      endEpoch: widget.endEpoch,
                     ),
-                    Positioned(
-                      top: 4,
-                      right: 6,
-                      child: _HypnogramOverlayButton(
-                        viewport: widget.viewport,
-                        onOverlayChanged: widget.onOverlayChanged,
-                      ),
-                    ),
-                  ],
+                    child: const SizedBox.expand(),
+                  ),
                 ),
               ),
             ),
@@ -7516,159 +7623,6 @@ class _HypnogramSlider extends StatelessWidget {
   }
 }
 
-class _HypnogramOverlayButton extends StatelessWidget {
-  const _HypnogramOverlayButton({
-    required this.viewport,
-    required this.onOverlayChanged,
-  });
-
-  final EegViewport viewport;
-  final void Function(String overlayMode, [String? probabilityStage])?
-  onOverlayChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final mode = viewport.hypnogramOverlayMode;
-    final stage = viewport.hypnogramProbabilityStage;
-    final label = mode == 'Off'
-        ? 'Overlay: Off'
-        : (mode == 'Probability' ? 'P($stage)' : 'SWA');
-
-    return Container(
-      height: 20,
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.9),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade400, width: 0.8),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x1A000000),
-            blurRadius: 2,
-            offset: Offset(0, 1),
-          ),
-        ],
-      ),
-      child: PopupMenuButton<String>(
-        tooltip: 'Hypnogram Overlay (SWA / Stage Probability / Off)',
-        padding: const EdgeInsets.symmetric(horizontal: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              mode == 'Off'
-                  ? Icons.layers_clear_outlined
-                  : Icons.layers_outlined,
-              size: 11,
-              color: mode == 'Off' ? Colors.grey : Colors.indigo,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: mode == 'Off'
-                    ? Colors.grey.shade700
-                    : Colors.indigo.shade900,
-              ),
-            ),
-            const Icon(Icons.arrow_drop_down, size: 13, color: Colors.black54),
-          ],
-        ),
-        onSelected: (val) {
-          if (val == 'SWA') {
-            onOverlayChanged?.call('SWA');
-          } else if (val == 'Off') {
-            onOverlayChanged?.call('Off');
-          } else if (val.startsWith('P_')) {
-            onOverlayChanged?.call('Probability', val.substring(2));
-          }
-        },
-        itemBuilder: (context) => [
-          const PopupMenuItem(
-            value: 'SWA',
-            child: Row(
-              children: [
-                Icon(Icons.show_chart, size: 16, color: Colors.teal),
-                SizedBox(width: 8),
-                Text(
-                  'SWA Trend (Slow-Wave Activity)',
-                  style: TextStyle(fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          const PopupMenuDivider(),
-          const PopupMenuItem(
-            value: 'P_Wake',
-            child: Row(
-              children: [
-                Icon(Icons.brightness_5, size: 16, color: Colors.amber),
-                SizedBox(width: 8),
-                Text('Probability: Wake', style: TextStyle(fontSize: 12)),
-              ],
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'P_N1',
-            child: Row(
-              children: [
-                Icon(Icons.bedtime_outlined, size: 16, color: Colors.lightBlue),
-                SizedBox(width: 8),
-                Text('Probability: N1', style: TextStyle(fontSize: 12)),
-              ],
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'P_N2',
-            child: Row(
-              children: [
-                Icon(Icons.bedtime_outlined, size: 16, color: Colors.blue),
-                SizedBox(width: 8),
-                Text('Probability: N2', style: TextStyle(fontSize: 12)),
-              ],
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'P_N3',
-            child: Row(
-              children: [
-                Icon(Icons.bedtime_outlined, size: 16, color: Colors.indigo),
-                SizedBox(width: 8),
-                Text(
-                  'Probability: N3 (Deep Sleep)',
-                  style: TextStyle(fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'P_REM',
-            child: Row(
-              children: [
-                Icon(Icons.remove_red_eye_outlined, size: 16, color: Colors.pink),
-                SizedBox(width: 8),
-                Text('Probability: REM', style: TextStyle(fontSize: 12)),
-              ],
-            ),
-          ),
-          const PopupMenuDivider(),
-          const PopupMenuItem(
-            value: 'Off',
-            child: Row(
-              children: [
-                Icon(Icons.visibility_off_outlined, size: 16, color: Colors.grey),
-                SizedBox(width: 8),
-                Text('None / Off', style: TextStyle(fontSize: 12)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ElectrodeScaleColumn extends StatelessWidget {
   const _ElectrodeScaleColumn({
     required this.viewport,
@@ -7765,18 +7719,90 @@ class _ChannelScaleTileState extends State<_ChannelScaleTile> {
           child: Row(
             children: [
               Expanded(
-                child: Text(
-                  widget.channelName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: isCompact ? 10 : 11,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                child: PopupMenuButton<double>(
+                  tooltip:
+                      '${widget.channelName} (Scale: $scaleStr) — Click for presets, scroll to zoom',
+                  padding: EdgeInsets.zero,
+                  onSelected: (val) {
+                    if (val == -1.0) {
+                      widget.onApplyAll?.call(widget.scalePercent);
+                    } else if (val == -2.0) {
+                      widget.onApplyAll?.call(100.0);
+                    } else {
+                      widget.onSetScale?.call(widget.channelIndex, val);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 50.0,
+                      child: Text('50% (Zoom Out)'),
+                    ),
+                    const PopupMenuItem(value: 75.0, child: Text('75%')),
+                    const PopupMenuItem(
+                      value: 100.0,
+                      child: Text('100% (Reset Default)'),
+                    ),
+                    const PopupMenuItem(value: 125.0, child: Text('125%')),
+                    const PopupMenuItem(
+                      value: 150.0,
+                      child: Text('150% (Zoom In)'),
+                    ),
+                    const PopupMenuItem(value: 200.0, child: Text('200%')),
+                    const PopupMenuItem(value: 300.0, child: Text('300%')),
+                    const PopupMenuDivider(),
+                    PopupMenuItem(
+                      value: -1.0,
+                      child: Text('Apply $scaleStr to All Channels'),
+                    ),
+                    const PopupMenuItem(
+                      value: -2.0,
+                      child: Text('Reset All Channels to 100%'),
+                    ),
+                  ],
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          widget.channelName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: isCompact ? 10 : 11.5,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                      if (widget.scalePercent != 100.0) ...[
+                        const SizedBox(width: 2),
+                        Text(
+                          '${widget.scalePercent.round()}%',
+                          style: TextStyle(
+                            fontSize: isCompact ? 8 : 9,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.indigo.shade800,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
-              _buildScaleControls(scaleStr, isCompact),
+              _buildSubtleSign(
+                icon: Icons.remove,
+                onTap: () =>
+                    widget.onAdjustScale?.call(widget.channelIndex, 0.8),
+                tooltip: 'Scale down (zoom out)',
+                isCompact: isCompact,
+              ),
+              _buildSubtleSign(
+                icon: Icons.add,
+                onTap: () =>
+                    widget.onAdjustScale?.call(widget.channelIndex, 1.25),
+                tooltip: 'Scale up (zoom in)',
+                isCompact: isCompact,
+              ),
             ],
           ),
         ),
@@ -7784,82 +7810,27 @@ class _ChannelScaleTileState extends State<_ChannelScaleTile> {
     );
   }
 
-  Widget _buildScaleControls(String scaleStr, bool isCompact) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        InkWell(
-          onTap: () => widget.onAdjustScale?.call(widget.channelIndex, 0.8),
-          borderRadius: BorderRadius.circular(2),
-          child: Padding(
-            padding: const EdgeInsets.all(1),
-            child: Icon(
-              Icons.remove,
-              size: isCompact ? 10 : 12,
-              color: Colors.blueGrey.shade700,
-            ),
+  Widget _buildSubtleSign({
+    required IconData icon,
+    required VoidCallback onTap,
+    required String tooltip,
+    required bool isCompact,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 500),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(2),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 1.5, vertical: 2),
+          child: Icon(
+            icon,
+            size: isCompact ? 10 : 11,
+            color: _hovered ? Colors.black87 : Colors.black45,
           ),
         ),
-        PopupMenuButton<double>(
-          tooltip: 'Scale: $scaleStr (Click for presets)',
-          padding: EdgeInsets.zero,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 1),
-            child: Text(
-              scaleStr,
-              style: TextStyle(
-                fontSize: isCompact ? 8.5 : 9.5,
-                fontWeight: FontWeight.w600,
-                color: widget.scalePercent == 100.0
-                    ? Colors.black54
-                    : Colors.blue.shade800,
-              ),
-            ),
-          ),
-          onSelected: (val) {
-            if (val == -1.0) {
-              widget.onApplyAll?.call(widget.scalePercent);
-            } else if (val == -2.0) {
-              widget.onApplyAll?.call(100.0);
-            } else {
-              widget.onSetScale?.call(widget.channelIndex, val);
-            }
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem(value: 50.0, child: Text('50% (Zoom Out)')),
-            const PopupMenuItem(value: 75.0, child: Text('75%')),
-            const PopupMenuItem(
-              value: 100.0,
-              child: Text('100% (Reset Default)'),
-            ),
-            const PopupMenuItem(value: 125.0, child: Text('125%')),
-            const PopupMenuItem(value: 150.0, child: Text('150% (Zoom In)')),
-            const PopupMenuItem(value: 200.0, child: Text('200%')),
-            const PopupMenuItem(value: 300.0, child: Text('300%')),
-            const PopupMenuDivider(),
-            PopupMenuItem(
-              value: -1.0,
-              child: Text('Apply $scaleStr to All Channels'),
-            ),
-            const PopupMenuItem(
-              value: -2.0,
-              child: Text('Reset All Channels to 100%'),
-            ),
-          ],
-        ),
-        InkWell(
-          onTap: () => widget.onAdjustScale?.call(widget.channelIndex, 1.25),
-          borderRadius: BorderRadius.circular(2),
-          child: Padding(
-            padding: const EdgeInsets.all(1),
-            child: Icon(
-              Icons.add,
-              size: isCompact ? 10 : 12,
-              color: Colors.blueGrey.shade700,
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -8068,7 +8039,14 @@ class _ToggleVideoIntent extends Intent {
   const _ToggleVideoIntent();
 }
 
+class _ToggleWaveformMaximizeIntent extends Intent {
+  const _ToggleWaveformMaximizeIntent();
+}
+
 final _shortcuts = <ShortcutActivator, Intent>{
+  // Waveform maximize toggle
+  const SingleActivator(LogicalKeyboardKey.keyF):
+      const _ToggleWaveformMaximizeIntent(),
   // Stage scoring
   const SingleActivator(LogicalKeyboardKey.keyW): const _ScoreIntent(
     SleepStage.wake,

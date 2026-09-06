@@ -306,6 +306,25 @@ class _MarkersDialogState extends State<MarkersDialog> {
                                               ),
                                             ),
                                           ],
+                                          if (ev.digit >= 0 && ev.digit <= 12) ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                              decoration: BoxDecoration(
+                                                color: Colors.blue.shade50,
+                                                borderRadius: BorderRadius.circular(3),
+                                                border: Border.all(color: Colors.blue.shade200, width: 0.5),
+                                              ),
+                                              child: Text(
+                                                ev.digit == 0 ? 'A' : 'F${ev.digit}',
+                                                style: TextStyle(
+                                                  fontSize: 9.5,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.blue.shade900,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                           if (ev.type.isNotEmpty && ev.type != 'Event') ...[
                                             const SizedBox(width: 6),
                                             Text(

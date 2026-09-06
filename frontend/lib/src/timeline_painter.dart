@@ -607,26 +607,108 @@ class HypnogramPainter extends CustomPainter {
     final cy = _toCanvasY(2.0, size.height);
     final totalDuration = visibleCount * 30.0;
     final startTime = sEpoch * 30.0;
+    final endTime = (sEpoch + visibleCount) * 30.0;
 
+    // Filter visible events
+    final visibleEvents = <ScoredEvent>[];
     for (final event in events) {
       if (viewport.disabledMarkerLabels.contains(event.label)) continue;
       final start = math.min(event.startSec, event.endSec);
       final end = math.max(event.startSec, event.endSec);
-      if (end < startTime || start > (sEpoch + visibleCount) * 30.0) continue;
+      if (end < startTime || start > endTime) continue;
+      visibleEvents.add(event);
+    }
+    if (visibleEvents.isEmpty) return;
 
+    // Partition events into macro (full-epoch / >= 15s) and micro (spindles, k-complexes, slow waves, spot markers, < 15s)
+    final macroEvents = <ScoredEvent>[];
+    final microEvents = <ScoredEvent>[];
+    for (final ev in visibleEvents) {
+      final dur = (ev.endSec - ev.startSec).abs();
+      if (dur >= 15.0) {
+        macroEvents.add(ev);
+      } else {
+        microEvents.add(ev);
+      }
+    }
+
+    // Lane packing: allocate non-overlapping sub-tracks
+    final trackEnds = <double>[];
+    final eventTrack = <ScoredEvent, int>{};
+
+    // First assign macro events to tracks
+    macroEvents.sort((a, b) => a.startSec.compareTo(b.startSec));
+    for (final ev in macroEvents) {
+      final start = math.min(ev.startSec, ev.endSec);
+      final end = math.max(ev.startSec, ev.endSec);
+      int assigned = -1;
+      for (var t = 0; t < trackEnds.length; t++) {
+        if (trackEnds[t] <= start) {
+          assigned = t;
+          trackEnds[t] = end;
+          break;
+        }
+      }
+      if (assigned == -1) {
+        assigned = trackEnds.length;
+        trackEnds.add(end);
+      }
+      eventTrack[ev] = assigned;
+    }
+
+    // Micro events start on a separate track when macro events are present
+    final microBaseTrack = macroEvents.isNotEmpty ? trackEnds.length : 0;
+    final microTrackEnds = <double>[];
+    microEvents.sort((a, b) => a.startSec.compareTo(b.startSec));
+    for (final ev in microEvents) {
+      final start = math.min(ev.startSec, ev.endSec);
+      final end = math.max(ev.startSec, ev.endSec);
+      int assigned = -1;
+      for (var t = 0; t < microTrackEnds.length; t++) {
+        if (microTrackEnds[t] <= start) {
+          assigned = t;
+          microTrackEnds[t] = end;
+          break;
+        }
+      }
+      if (assigned == -1) {
+        assigned = microTrackEnds.length;
+        microTrackEnds.add(end);
+      }
+      eventTrack[ev] = microBaseTrack + assigned;
+    }
+
+    final totalTracks =
+        math.min(4, math.max(1, trackEnds.length + microTrackEnds.length));
+    const bandH = 16.0;
+    final topY = cy - 8.0;
+    final trackH = bandH / totalTracks;
+
+    for (final event in visibleEvents) {
+      final start = math.min(event.startSec, event.endSec);
+      final end = math.max(event.startSec, event.endSec);
       final visibleStart = math.max(start, startTime);
-      final visibleEnd = math.min(end, (sEpoch + visibleCount) * 30.0);
+      final visibleEnd = math.min(end, endTime);
 
       final x1 =
           _leftPad + ((visibleStart - startTime) / totalDuration) * drawWidth;
       final x2 =
           _leftPad + ((visibleEnd - startTime) / totalDuration) * drawWidth;
 
+      // Ensure local events (spindles, K-complex, spot events) have a minimum visible width
+      final minWidth = event.isPointMarker ? 3.0 : 2.5;
+      final renderedX2 = math.max(x1 + minWidth, x2);
+
+      final track = (eventTrack[event] ?? 0).clamp(0, totalTracks - 1);
+      final y1 = topY + (track * trackH);
+      final y2 = topY + ((track + 1) * trackH) - (totalTracks > 1 ? 0.8 : 0.0);
+
       final baseColor = _eventColor(event.digit);
       final solidColor = baseColor.withAlpha(255);
 
-      canvas.drawRect(
-        Rect.fromLTRB(x1, cy - 6, math.max(x1 + 1.5, x2), cy + 6),
+      final rect = Rect.fromLTRB(x1, y1, renderedX2, y2);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(1.5)),
         Paint()..color = solidColor,
       );
     }
