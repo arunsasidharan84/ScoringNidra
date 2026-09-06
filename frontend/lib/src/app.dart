@@ -482,6 +482,8 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
         epochSeconds: vp.epochSeconds,
         epochCount: vp.epochCount,
         recordingStartTime: vp.recordingStartTime,
+        customEventNames: _config.customEventNames,
+        onUpdateEventNames: _updateCustomEventNames,
         onToggleLabel: (label, visible) {
           setState(() {
             final newSet = Set<String>.from(_viewport!.disabledMarkerLabels);
@@ -505,6 +507,117 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
           final epoch = (ev.startSec / vp.epochSeconds).floor() + 1;
           _jumpToEpoch(epoch);
         },
+      ),
+    );
+  }
+
+  void _updateCustomEventNames(Map<int, String> newNames) {
+    setState(() {
+      _config.customEventNames = Map<int, String>.from(newNames);
+    });
+    if (_activePath != null) {
+      unawaited(saveAutoConfig(_activePath!, _config));
+    }
+  }
+
+  void _showEditEventNamesDialog() {
+    final controllers = <int, TextEditingController>{};
+    for (var i = 0; i <= 8; i++) {
+      controllers[i] = TextEditingController(
+        text: _config.customEventNames[i] ?? '',
+      );
+    }
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.edit_note, size: 22, color: Colors.indigo),
+            SizedBox(width: 8),
+            Text('Customize Event Names'),
+          ],
+        ),
+        content: SizedBox(
+          width: 380,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Define custom labels for event shortcut keys (0–8).\nLeave empty to use the default name.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 12),
+                for (var i = 0; i <= 8; i++) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 80,
+                          child: Text(
+                            i == 0 ? 'Artefact [A]:' : 'Event $i [F$i]:',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: SizedBox(
+                            height: 32,
+                            child: TextField(
+                              controller: controllers[i],
+                              style: const TextStyle(fontSize: 12),
+                              decoration: InputDecoration(
+                                hintText: i == 0
+                                    ? 'Artifact'
+                                    : 'Event $i (e.g. Spindle)',
+                                hintStyle: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.black38,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 6,
+                                ),
+                                border: const OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final newMap = <int, String>{};
+              for (var i = 0; i <= 8; i++) {
+                final txt = controllers[i]!.text.trim();
+                if (txt.isNotEmpty) {
+                  newMap[i] = txt;
+                }
+              }
+              _updateCustomEventNames(newMap);
+              Navigator.of(dialogCtx).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
       ),
     );
   }
@@ -649,11 +762,6 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
     if (mounted) {
       setState(() {
         _viewport = newViewport;
-        final prob = v.stageProbabilities.length > epoch && v.stageProbabilities[epoch].isNotEmpty
-            ? '  |  ${(v.stageProbabilities[epoch].values.reduce(math.max) * 100).toStringAsFixed(0)}% confidence'
-            : '';
-        _status =
-            'Epoch ${epoch + 1} / ${v.epochCount}  |  ${v.stages[epoch].label}$prob';
       });
       if (claimFocus) {
         _viewerFocusNode.requestFocus();
@@ -1026,7 +1134,11 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
     return merged;
   }
 
-  String _eventLabel(int digit) => digit == 0 ? 'Artifact' : 'Event $digit';
+  String _eventLabel(int digit) {
+    final custom = _config.customEventNames[digit]?.trim();
+    if (custom != null && custom.isNotEmpty) return custom;
+    return digit == 0 ? 'Artifact' : 'Event $digit';
+  }
 
   // ─── Scoring I/O ──────────────────────────────────────────────────────────
 
@@ -4263,14 +4375,18 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
         label: 'Events',
         menus: [
           PlatformMenuItem(
-            label: 'Artefact  [A]',
+            label: '${_eventLabel(0)}  [A]',
             onSelected: () => _markEvent(0),
           ),
           for (var i = 1; i <= 12; i++)
             PlatformMenuItem(
-              label: 'Event $i  [F$i / Func $i]',
+              label: '${_eventLabel(i)}  [F$i / Func $i]',
               onSelected: () => _markEvent(i),
             ),
+          PlatformMenuItem(
+            label: 'Configure Event Names…',
+            onSelected: _showEditEventNamesDialog,
+          ),
           PlatformMenuItem(
             label: 'Erase events in drawn selection [Backspace]',
             onSelected: _eraseEventsInSelections,
@@ -4590,13 +4706,18 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
             menuChildren: [
               MenuItemButton(
                 onPressed: () => _markEvent(0),
-                child: const Text('Artefact  [A]'),
+                child: Text('${_eventLabel(0)}  [A]'),
               ),
               for (var i = 1; i <= 12; i++)
                 MenuItemButton(
                   onPressed: () => _markEvent(i),
-                  child: Text('Event $i  [F$i / Func $i]'),
+                  child: Text('${_eventLabel(i)}  [F$i / Func $i]'),
                 ),
+              const Divider(height: 1),
+              MenuItemButton(
+                onPressed: _showEditEventNamesDialog,
+                child: const Text('Configure Event Names…'),
+              ),
               const Divider(height: 1),
               MenuItemButton(
                 onPressed: _eraseEventsInSelections,
@@ -5702,6 +5823,7 @@ class _CCSSleepStudioHomeState extends State<CCSSleepStudioHome>
                       _Toolbar(
                         viewport: viewport,
                         onJump: _jumpToEpoch,
+                        onTimeUnitChanged: _setEegPanelTimeUnit,
                         onFocusChanged: (focused) =>
                             setState(() => _textInputFocused = focused),
                         onPrevious: _previousEpoch,
@@ -5987,6 +6109,7 @@ class _Toolbar extends StatefulWidget {
     this.onOverlayChanged,
     this.onOpenMarkers,
     this.onToggleVideo,
+    this.onTimeUnitChanged,
     this.videoLoaded = false,
     this.videoVisible = false,
   });
@@ -6013,6 +6136,7 @@ class _Toolbar extends StatefulWidget {
   onOverlayChanged;
   final VoidCallback? onOpenMarkers;
   final VoidCallback? onToggleVideo;
+  final ValueChanged<String>? onTimeUnitChanged;
   final bool videoLoaded;
   final bool videoVisible;
 
@@ -6029,6 +6153,9 @@ class _ToolbarState extends State<_Toolbar> {
   void initState() {
     super.initState();
     final epoch = widget.viewport?.currentEpoch ?? 0;
+    if (widget.viewport?.eegPanelTimeUnit == 'Clock time') {
+      _jumpMode = 'Clock';
+    }
     _ctrl = TextEditingController(text: '${epoch + 1}');
     _focusNode.addListener(_handleFocusChange);
   }
@@ -6101,6 +6228,15 @@ class _ToolbarState extends State<_Toolbar> {
   void didUpdateWidget(covariant _Toolbar old) {
     super.didUpdateWidget(old);
     final epoch = widget.viewport?.currentEpoch ?? 0;
+    final oldUnit = old.viewport?.eegPanelTimeUnit;
+    final newUnit = widget.viewport?.eegPanelTimeUnit;
+    if (oldUnit != newUnit) {
+      if (newUnit == 'Clock time') {
+        _jumpMode = 'Clock';
+      } else if (_jumpMode == 'Clock') {
+        _jumpMode = 'Elapsed';
+      }
+    }
     if (!_focusNode.hasFocus) {
       if (_jumpMode == 'Epoch') {
         _ctrl.text = '${epoch + 1}';
@@ -6193,6 +6329,12 @@ class _ToolbarState extends State<_Toolbar> {
                                   '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
                             }
                           });
+                          if (val == 'Clock') {
+                            widget.onTimeUnitChanged?.call('Clock time');
+                          } else if (val == 'Elapsed' &&
+                              widget.viewport?.eegPanelTimeUnit == 'Clock time') {
+                            widget.onTimeUnitChanged?.call('Minutes');
+                          }
                         }
                       : null,
                 ),
@@ -6484,15 +6626,18 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
   int _dragHypStartFlex = 0;
   int _dragPerStartFlex = 0;
   double _topPanelHeight = 158.0;
+  double _channelSidebarWidth = 100.0;
+
+  double get _waveformPlotLeftPad => _channelSidebarWidth + 16.0;
 
   void _handlePanStart(DragStartDetails details, BoxConstraints constraints) {
     final n = widget.viewport.channelCount;
     if (n == 0) return;
-    final drawWidth = (constraints.maxWidth - _plotLeftPadding).clamp(
+    final drawWidth = (constraints.maxWidth - _waveformPlotLeftPad).clamp(
       1.0,
       double.infinity,
     );
-    final fx = ((details.localPosition.dx - _plotLeftPadding) / drawWidth)
+    final fx = ((details.localPosition.dx - _waveformPlotLeftPad) / drawWidth)
         .clamp(0.0, 1.0);
     final sec =
         widget.viewport.visibleStartSeconds +
@@ -6517,11 +6662,11 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
 
   void _handlePanUpdate(DragUpdateDetails details, BoxConstraints constraints) {
     if (_dragStartSec == null || _dragChannel == null) return;
-    final drawWidth = (constraints.maxWidth - _plotLeftPadding).clamp(
+    final drawWidth = (constraints.maxWidth - _waveformPlotLeftPad).clamp(
       1.0,
       double.infinity,
     );
-    final fx = ((details.localPosition.dx - _plotLeftPadding) / drawWidth)
+    final fx = ((details.localPosition.dx - _waveformPlotLeftPad) / drawWidth)
         .clamp(0.0, 1.0);
     final sec =
         widget.viewport.visibleStartSeconds +
@@ -6627,6 +6772,7 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
                         flex: specFlex,
                         child: _ClickablePainterPanel(
                           painter: SpectrogramPainter(widget.viewport),
+                          rightPadding: 38.0,
                           onTapFraction: (fx) {
                             final epoch = (fx * widget.viewport.epochCount)
                                 .floor()
@@ -6782,12 +6928,12 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
                   children: [
                     GestureDetector(
                       onPanStart: (d) {
-                        if (d.localPosition.dx >= _plotLeftPadding) {
+                        if (d.localPosition.dx >= _waveformPlotLeftPad) {
                           _handlePanStart(d, constraints);
                         }
                       },
                       onPanUpdate: (d) {
-                        if (d.localPosition.dx >= _plotLeftPadding ||
+                        if (d.localPosition.dx >= _waveformPlotLeftPad ||
                             _dragStartSec != null) {
                           _handlePanUpdate(d, constraints);
                         }
@@ -6801,6 +6947,7 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
                             painter: TimelinePainter(
                               widget.viewport,
                               drawChannelLabels: false,
+                              leftPad: _waveformPlotLeftPad,
                             ),
                             padding: EdgeInsets.zero,
                           ),
@@ -6813,6 +6960,7 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
                                 activeDragChannel: _dragChannel,
                                 activeDragStartUv: _dragStartUv,
                                 activeDragEndUv: _dragEndUv,
+                                leftPad: _waveformPlotLeftPad,
                               ),
                             ),
                           ),
@@ -6876,12 +7024,12 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
                         ),
                       ),
                     ),
-                    if (channelCount > 0 && channelHeight > 0)
+                    if (channelCount > 0 && channelHeight > 0) ...[
                       Positioned(
                         left: 0,
                         top: 0,
                         bottom: 0,
-                        width: _plotLeftPadding - 16,
+                        width: _channelSidebarWidth,
                         child: _ElectrodeScaleColumn(
                           viewport: widget.viewport,
                           channelHeight: channelHeight,
@@ -6890,6 +7038,33 @@ class _ScoringHeroSurfaceState extends State<_ScoringHeroSurface> {
                           onApplyAll: widget.onChannelScaleApplyAll,
                         ),
                       ),
+                      // Draggable vertical splitter for channel sidebar width
+                      Positioned(
+                        left: _channelSidebarWidth - 3,
+                        top: 0,
+                        bottom: 0,
+                        width: 8,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onHorizontalDragUpdate: (details) {
+                            setState(() {
+                              _channelSidebarWidth = (_channelSidebarWidth +
+                                      details.delta.dx)
+                                  .clamp(70.0, 240.0);
+                            });
+                          },
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.resizeColumn,
+                            child: Center(
+                              child: Container(
+                                width: 2,
+                                color: const Color(0xFFDCDCDC),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 );
               },
@@ -7102,12 +7277,15 @@ class _StatusBar extends StatelessWidget {
             ),
           timeWidget,
           Text(
-            '  |  Epoch ${currentIdx + 1}/${vp.epochCount}  |  Current: ${currentStage.label}$uncertainStr$comparisonStr$confidenceStr$probsStr$selectionStr  |  ${vp.sampleRateHz.toStringAsFixed(0)} Hz',
+            '  |  Epoch ${currentIdx + 1}/${vp.epochCount} (${currentStage.label}$uncertainStr)$comparisonStr$confidenceStr$probsStr$selectionStr  |  ${vp.sampleRateHz.toStringAsFixed(0)} Hz',
             style: const TextStyle(fontSize: 12, color: Colors.black87),
           ),
         ],
       );
     }
+    final cleanStatus = (status.startsWith('Epoch ') && status.contains(' / '))
+        ? 'Ready'
+        : status;
     return Container(
       height: 24,
       decoration: const BoxDecoration(
@@ -7119,7 +7297,7 @@ class _StatusBar extends StatelessWidget {
         children: [
           Expanded(
             child: Text(
-              status,
+              cleanStatus,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 12),
@@ -7182,10 +7360,14 @@ class _ClickablePainterPanel extends StatelessWidget {
   const _ClickablePainterPanel({
     required this.painter,
     required this.onTapFraction,
+    this.leftPadding = _plotLeftPadding,
+    this.rightPadding = 0.0,
   });
 
   final CustomPainter painter;
   final void Function(double fx) onTapFraction;
+  final double leftPadding;
+  final double rightPadding;
 
   @override
   Widget build(BuildContext context) {
@@ -7200,34 +7382,37 @@ class _ClickablePainterPanel extends StatelessWidget {
           child: GestureDetector(
             onTapDown: (details) {
               final rb = context.findRenderObject()! as RenderBox;
-              final plotWidth = (rb.size.width - _plotLeftPadding).clamp(
+              final plotWidth =
+                  (rb.size.width - leftPadding - rightPadding).clamp(
                 1.0,
                 double.infinity,
               );
               final fx =
-                  ((details.localPosition.dx - _plotLeftPadding) / plotWidth)
+                  ((details.localPosition.dx - leftPadding) / plotWidth)
                       .clamp(0.0, 1.0);
               onTapFraction(fx);
             },
             onPanUpdate: (details) {
               final rb = context.findRenderObject()! as RenderBox;
-              final plotWidth = (rb.size.width - _plotLeftPadding).clamp(
+              final plotWidth =
+                  (rb.size.width - leftPadding - rightPadding).clamp(
                 1.0,
                 double.infinity,
               );
               final fx =
-                  ((details.localPosition.dx - _plotLeftPadding) / plotWidth)
+                  ((details.localPosition.dx - leftPadding) / plotWidth)
                       .clamp(0.0, 1.0);
               onTapFraction(fx);
             },
             onPanDown: (details) {
               final rb = context.findRenderObject()! as RenderBox;
-              final plotWidth = (rb.size.width - _plotLeftPadding).clamp(
+              final plotWidth =
+                  (rb.size.width - leftPadding - rightPadding).clamp(
                 1.0,
                 double.infinity,
               );
               final fx =
-                  ((details.localPosition.dx - _plotLeftPadding) / plotWidth)
+                  ((details.localPosition.dx - leftPadding) / plotWidth)
                       .clamp(0.0, 1.0);
               onTapFraction(fx);
             },
@@ -7278,6 +7463,8 @@ class _HypnogramPainterPanelState extends State<_HypnogramPainterPanel> {
   double? _dragLightsOff;
   double? _dragLightsOn;
 
+  static const double _hypLeftPadding = 48.0;
+
   double get _effectiveLightsOff =>
       _dragLightsOff ?? widget.viewport.lightsOffSeconds ?? 0.0;
 
@@ -7292,11 +7479,11 @@ class _HypnogramPainterPanelState extends State<_HypnogramPainterPanel> {
   );
 
   double _fractionFromPosition(Offset position, Size size) {
-    final plotWidth = (size.width - _plotLeftPadding).clamp(
+    final plotWidth = (size.width - _hypLeftPadding).clamp(
       1.0,
       double.infinity,
     );
-    return ((position.dx - _plotLeftPadding) / plotWidth).clamp(0.0, 1.0);
+    return ((position.dx - _hypLeftPadding) / plotWidth).clamp(0.0, 1.0);
   }
 
   double _secondsFromPosition(Offset position, Size size) {
@@ -7313,7 +7500,7 @@ class _HypnogramPainterPanelState extends State<_HypnogramPainterPanel> {
     if (position.dy >= 25.0 && position.dy <= plotH - 20.0) {
       return null;
     }
-    final plotWidth = (size.width - _plotLeftPadding).clamp(
+    final plotWidth = (size.width - _hypLeftPadding).clamp(
       1.0,
       double.infinity,
     );
@@ -7321,7 +7508,7 @@ class _HypnogramPainterPanelState extends State<_HypnogramPainterPanel> {
     final start = widget.startEpoch * widget.viewport.epochSeconds.toDouble();
     final duration = visibleEpochs * widget.viewport.epochSeconds.toDouble();
     double markerX(double seconds) =>
-        _plotLeftPadding + ((seconds - start) / duration) * plotWidth;
+        _hypLeftPadding + ((seconds - start) / duration) * plotWidth;
     final lightsOff = _effectiveLightsOff.clamp(0.0, total);
     final lightsOn = _effectiveLightsOn.clamp(0.0, total);
     final offDistance = (position.dx - markerX(lightsOff)).abs();
@@ -7759,34 +7946,64 @@ class _ChannelScaleTileState extends State<_ChannelScaleTile> {
                       child: Text('Reset All Channels to 100%'),
                     ),
                   ],
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          widget.channelName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: isCompact ? 10 : 11.5,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
+                  child: !isCompact
+                      ? Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              widget.channelName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            if (widget.scalePercent != 100.0)
+                              Text(
+                                '${widget.scalePercent.round()}%',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.indigo.shade800,
+                                ),
+                              ),
+                          ],
+                        )
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              fit: FlexFit.loose,
+                              child: Text(
+                                widget.channelName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ),
+                            if (widget.scalePercent != 100.0) ...[
+                              const SizedBox(width: 2),
+                              Text(
+                                '${widget.scalePercent.round()}%',
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.indigo.shade800,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
-                      ),
-                      if (widget.scalePercent != 100.0) ...[
-                        const SizedBox(width: 2),
-                        Text(
-                          '${widget.scalePercent.round()}%',
-                          style: TextStyle(
-                            fontSize: isCompact ? 8 : 9,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.indigo.shade800,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
                 ),
               ),
               _buildSubtleSign(

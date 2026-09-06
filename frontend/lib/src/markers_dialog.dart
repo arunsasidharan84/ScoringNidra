@@ -27,6 +27,8 @@ class MarkersDialog extends StatefulWidget {
     required this.epochSeconds,
     required this.epochCount,
     this.recordingStartTime,
+    this.customEventNames,
+    this.onUpdateEventNames,
     required this.onToggleLabel,
     required this.onSetAllLabels,
     required this.onJumpToEvent,
@@ -37,6 +39,8 @@ class MarkersDialog extends StatefulWidget {
   final int epochSeconds;
   final int epochCount;
   final DateTime? recordingStartTime;
+  final Map<int, String>? customEventNames;
+  final void Function(Map<int, String> newNames)? onUpdateEventNames;
   final void Function(String label, bool visible) onToggleLabel;
   final void Function(bool selectAll) onSetAllLabels;
   final void Function(ScoredEvent event) onJumpToEvent;
@@ -68,6 +72,130 @@ class _MarkersDialogState extends State<MarkersDialog> {
     if (widget.recordingStartTime == null) return _formatElapsed(seconds);
     final dt = widget.recordingStartTime!.add(Duration(milliseconds: (seconds * 1000).round()));
     return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _showEditEventNamesDialog(BuildContext context) async {
+    final controllers = <int, TextEditingController>{};
+    const defaults = <int, String>{
+      0: 'Artifact',
+      1: 'Event 1',
+      2: 'Event 2',
+      3: 'Event 3',
+      4: 'Event 4',
+      5: 'Event 5',
+      6: 'Event 6',
+      7: 'Event 7',
+      8: 'Event 8',
+    };
+    const shortcuts = <int, String>{
+      0: 'A',
+      1: 'F1',
+      2: 'F2',
+      3: 'F3',
+      4: 'F4',
+      5: 'F5',
+      6: 'F6',
+      7: 'F7',
+      8: 'F8',
+    };
+
+    for (var i = 0; i <= 8; i++) {
+      final curName = widget.customEventNames?[i] ?? defaults[i]!;
+      controllers[i] = TextEditingController(text: curName);
+    }
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.label_outline, color: Color(0xFF1E88E5)),
+            SizedBox(width: 8),
+            Text('Custom Event Names', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SizedBox(
+          width: 440,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Name your event types. These will appear in the application menus, shortcuts, and event overlays.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 12),
+                for (var i = 0; i <= 8; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 34,
+                          alignment: Alignment.center,
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: _eventColor(i).withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: _eventColor(i), width: 1.0),
+                          ),
+                          child: Text(
+                            shortcuts[i]!,
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: controllers[i],
+                            style: const TextStyle(fontSize: 13),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                              border: const OutlineInputBorder(),
+                              hintText: defaults[i],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              for (var i = 0; i <= 8; i++) {
+                controllers[i]!.text = defaults[i]!;
+              }
+            },
+            child: const Text('Reset Defaults'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (saved == true) {
+      final newNames = <int, String>{};
+      for (var i = 0; i <= 8; i++) {
+        final text = controllers[i]!.text.trim();
+        if (text.isNotEmpty) {
+          newNames[i] = text;
+        }
+      }
+      widget.onUpdateEventNames?.call(newNames);
+    }
   }
 
   @override
@@ -109,6 +237,14 @@ class _MarkersDialogState extends State<MarkersDialog> {
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const Spacer(),
+                if (widget.onUpdateEventNames != null) ...[
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.edit_note, size: 16),
+                    label: const Text('Event Names…', style: TextStyle(fontSize: 12)),
+                    onPressed: () => _showEditEventNamesDialog(context),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 IconButton(
                   icon: const Icon(Icons.close),
                   tooltip: 'Close',

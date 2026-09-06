@@ -209,8 +209,12 @@ class AppConfig {
     this.subjectDetails = '',
     this.recordingDate = '',
     this.channels = const [],
+    Map<int, String>? customEventNames,
   }) : hypnogramOverlayMode =
-           hypnogramOverlayMode ?? (showSwaPlot ? 'SWA' : 'Off');
+           hypnogramOverlayMode ?? (showSwaPlot ? 'SWA' : 'Off'),
+       customEventNames = customEventNames != null
+           ? Map<int, String>.from(customEventNames)
+           : {};
 
   int spectrogramChannelIndex;
   int swaChannelIndex;
@@ -261,6 +265,7 @@ class AppConfig {
   String subjectDetails;
   String recordingDate;
   List<ChannelConfig> channels;
+  Map<int, String> customEventNames;
 
   Map<String, dynamic> toJson() {
     return {
@@ -308,6 +313,8 @@ class AppConfig {
       'subjectDetails': subjectDetails,
       'recordingDate': recordingDate,
       'channels': channels.map((c) => c.toJson()).toList(),
+      'customEventNames':
+          customEventNames.map((k, v) => MapEntry(k.toString(), v)),
     };
   }
 
@@ -336,6 +343,16 @@ class AppConfig {
       if (v is num) return v.toDouble();
       if (v is String) return double.tryParse(v);
       return null;
+    }
+
+    final parsedEventNames = <int, String>{};
+    if (json['customEventNames'] is Map) {
+      (json['customEventNames'] as Map).forEach((k, v) {
+        final d = int.tryParse(k.toString());
+        if (d != null && v != null && v.toString().trim().isNotEmpty) {
+          parsedEventNames[d] = v.toString().trim();
+        }
+      });
     }
 
     return AppConfig(
@@ -399,6 +416,7 @@ class AppConfig {
       subjectId: json['subjectId'] as String? ?? '',
       subjectDetails: json['subjectDetails'] as String? ?? '',
       recordingDate: json['recordingDate'] as String? ?? '',
+      customEventNames: parsedEventNames,
       channels:
           (json['channels'] as List<dynamic>?)
               ?.map(
